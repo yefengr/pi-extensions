@@ -8,6 +8,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -23,8 +24,17 @@ jobs:
           npm run typecheck
           npm run check -w @yefengr/pi-subagents
 
-      - name: Test
-        run: npm test
+      - name: Test notify
+        run: timeout 120 npm test -w @yefengr/pi-notify
+
+      - name: Test monitor
+        run: timeout 180 npm test -w @yefengr/pi-monitor
+
+      - name: Test task-efficiency
+        run: timeout 180 npm test -w @yefengr/pi-task-efficiency
+
+      - name: Test subagents
+        run: timeout 300 npm test -w @yefengr/pi-subagents
 
       - name: Verify packed contents
         run: npm pack --dry-run --workspaces
