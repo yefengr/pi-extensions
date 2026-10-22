@@ -7,10 +7,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { eventually, installedPiRoot } from "./helpers.ts";
+import { eventually, piCliPath } from "./helpers.ts";
 
 // 仅本地 HTTP fixture 伪造模型响应，真实 Pi 驱动解释轮和工具硬门禁；没有外部模型费用。
 test("real Pi explanation persists receipt and blocks model-requested writes", { timeout: 30_000 }, async (t) => {
+  const cli = piCliPath();
+  if (!cli) {
+    t.skip("需要可用的 Pi CLI；可用 PI_MONITOR_PI_ROOT 指定 package 根目录");
+    return;
+  }
   const root = await mkdtemp(path.join(os.tmpdir(), "monitor-explain-"));
   const agent = path.join(root, "agent");
   await mkdir(agent);
@@ -44,7 +49,7 @@ test("real Pi explanation persists receipt and blocks model-requested writes", {
     { type: "session", version: 3, id: "explain-owner", timestamp: new Date().toISOString(), cwd: root },
     { type: "message", id: "seed", parentId: null, timestamp: new Date().toISOString(), message: { role: "user", content: "离线测试基线", timestamp: Date.now() } },
   ].map((entry) => JSON.stringify(entry)).join("\n") + "\n");
-  const child = spawn(process.execPath, [path.join(installedPiRoot(), "dist", "cli.js"), "--offline", "--mode", "rpc", "--session", session,
+  const child = spawn(process.execPath, [cli, "--offline", "--mode", "rpc", "--session", session,
     "-ne", "-ns", "-np", "-nc", "--no-themes", "--no-mcp", "-e", fileURLToPath(new URL("../index.ts", import.meta.url)), "-e", provider,
     "--provider", "monitor-fixture", "--model", "fixture", "--thinking", "off",
   ], { cwd: root, env: { PATH: process.env.PATH, HOME: root, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "pipe"] });
@@ -53,7 +58,8 @@ test("real Pi explanation persists receipt and blocks model-requested writes", {
   t.after(async () => {
     child.stdin.end();
     const force = setTimeout(() => { if (!exited) child.kill("SIGKILL"); }, 2_000);
-    await exit; clearTimeout(force);
+    await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    clearTimeout(force);
     server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   });

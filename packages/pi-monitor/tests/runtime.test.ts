@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -401,9 +401,14 @@ test("list and runtime indexes are bounded while old IDs stay queryable from his
   assert.equal(h.runtime.record(h.ctx, oldest).status, "stopped");
 });
 
-test("real Pi SDK loads package entry and registers extension without starting resources", async () => {
+test("real Pi SDK loads package entry and registers extension without starting resources", async (t) => {
   const root = installedPiRoot();
-  const sdk = await import(pathToFileURL(path.join(root, "dist", "core", "extensions", "loader.js")).href);
+  const loader = path.join(root, "dist", "core", "extensions", "loader.js");
+  if (!existsSync(loader)) {
+    t.skip("需要可用的 Pi SDK loader");
+    return;
+  }
+  const sdk = await import(pathToFileURL(loader).href);
   const result = await sdk.loadExtensions([fileURLToPath(new URL("../index.ts", import.meta.url))], process.cwd());
   assert.deepEqual(result.errors, []);
   assert.equal(result.extensions.length, 1);

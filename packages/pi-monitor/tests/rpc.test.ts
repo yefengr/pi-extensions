@@ -5,10 +5,15 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { eventually, installedPiRoot } from "./helpers.ts";
+import { eventually, piCliPath } from "./helpers.ts";
 
 // 隔离 HOME/agent 目录且仅使用 notify，不读取真实认证、不发起模型请求。
 test("real RPC: start/resume without confirmation, once/continuous, reload and session isolation", { timeout: 30_000 }, async (t) => {
+  const cli = piCliPath();
+  if (!cli) {
+    t.skip("需要可用的 Pi CLI；可用 PI_MONITOR_PI_ROOT 指定 package 根目录");
+    return;
+  }
   const root = await mkdtemp(path.join(os.tmpdir(), "monitor-rpc-"));
   const agent = path.join(root, "agent");
   await mkdir(agent);
@@ -23,7 +28,7 @@ test("real RPC: start/resume without confirmation, once/continuous, reload and s
   const reload = path.join(root, "reload.ts");
   await writeFile(reload, "export default function(pi){pi.registerCommand('monitor-test-reload',{description:'test-only reload',handler:async(_args,ctx)=>{await ctx.reload();}})}");
   const child = spawn(process.execPath, [
-    path.join(installedPiRoot(), "dist", "cli.js"), "--offline", "--mode", "rpc", "--session", session,
+    cli, "--offline", "--mode", "rpc", "--session", session,
     "-ne", "-ns", "-np", "-nc", "--no-themes", "--no-mcp", "-e",
     fileURLToPath(new URL("../index.ts", import.meta.url)), "-e", reload,
   ], { cwd: root, env: { PATH: process.env.PATH, HOME: root, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "pipe"] });
@@ -33,7 +38,8 @@ test("real RPC: start/resume without confirmation, once/continuous, reload and s
   t.after(async () => {
     child.stdin.end();
     const force = setTimeout(() => { if (!exited) child.kill("SIGKILL"); }, 2_000);
-    await exit; clearTimeout(force);
+    await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    clearTimeout(force);
     await rm(root, { recursive: true, force: true });
   });
   const events: any[] = [];
