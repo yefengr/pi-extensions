@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 要发布的 npm 包
+        required: true
+        type: choice
+        options:
+          - "@yefengr/pi-notify"
+          - "@yefengr/pi-monitor"
+          - "@yefengr/pi-subagents"
+          - "@yefengr/pi-task-efficiency"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+
+      - run: npm ci
+
+      - name: Publish
+        run: npm publish -w "${{ inputs.package }}" --provenance --access public
