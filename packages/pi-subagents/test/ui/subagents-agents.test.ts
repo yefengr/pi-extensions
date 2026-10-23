@@ -51,14 +51,14 @@ describe("SubagentsAgentsHandler", () => {
 
     await handler.handle({ ui });
 
-    expect(ui.select.mock.calls[0][0]).toContain("4 启用 / 0 禁用");
+    expect(ui.select.mock.calls[0][0]).toContain("2 启用 / 0 禁用");
     expect(settings.set).toHaveBeenCalledWith("project", "reviewer", false);
     expect(refresh).toHaveBeenCalled();
     expect(ui.notify).toHaveBeenCalledWith(
       "reviewer：已在当前项目设为禁用。当前项目禁用（当前项目）。",
       "info",
     );
-    expect(ui.select.mock.calls[4][0]).toContain("3 启用 / 1 禁用");
+    expect(ui.select.mock.calls[4][0]).toContain("1 启用 / 1 禁用");
   });
 
   it("lets the user choose global scope and restore that scope's inheritance", async () => {

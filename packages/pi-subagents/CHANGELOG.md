@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.3.0
+
+- Remove the built-in `Explore` and `Plan` agent types; `general-purpose` is now the only embedded default and remains the fallback for unknown types.
+- Add `is_default` and `tool_guideline` frontmatter fields so custom agents can join the default agent list and contribute a hint line to the `subagent` tool description.
+- Correct the `model` pin documentation: an unavailable pinned model now inherits the parent model instead of failing the spawn.
+
 ## 0.2.0
 
 - Ship the package-bundled skill `orchestrate-subagents`, covering capability checks, delegation readiness gates, ownership and evidence handoff, review triggers, and lifecycle closeout.

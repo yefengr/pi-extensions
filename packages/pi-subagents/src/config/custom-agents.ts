@@ -16,7 +16,7 @@ import type { AgentConfig, ThinkingLevel } from "#src/types";
  *   2. Global:  $PI_CODING_AGENT_DIR/agents/*.md (default: ~/.pi/agent/agents/*.md)
  *
  * Project-level agents override global ones with the same name.
- * Any name is allowed — names matching defaults (e.g. "Explore") override them.
+ * Any name is allowed — names matching defaults (e.g. "general-purpose") override them.
  */
 export function loadCustomAgents(cwd: string): Map<string, AgentConfig> {
   const globalDir = join(getAgentDir(), "agents");
@@ -57,6 +57,7 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
       name,
       displayName: str(fm.display_name),
       description: str(fm.description) ?? name,
+      toolGuideline: str(fm.tool_guideline),
       toolNames: listField(fm.tools, BUILTIN_TOOL_NAMES),
       model: str(fm.model),
       thinking: str(fm.thinking) as ThinkingLevel | undefined,
@@ -67,6 +68,7 @@ function loadFromDir(dir: string, agents: Map<string, AgentConfig>, source: "pro
       promptMode: fm.prompt_mode === "replace" ? "replace" : "append",
       inheritContext: fm.inherit_context != null ? fm.inherit_context === true : undefined,
       runInBackground: fm.run_in_background != null ? fm.run_in_background === true : undefined,
+      isDefault: fm.is_default === true ? true : undefined,
       source,
       filePath: join(dir, file),
     });

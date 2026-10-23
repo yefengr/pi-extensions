@@ -331,7 +331,7 @@ src/
 │
 ├── config/                         agent type definitions and resolution
 │   ├── agent-types.ts              AgentTypeRegistry class
-│   ├── default-agents.ts           built-in agent configs (general-purpose, Explore, Plan)
+│   ├── default-agents.ts           built-in agent configs (general-purpose)
 │   ├── custom-agents.ts            user-defined agent .md file loader
 │   └── invocation-config.ts        per-call config merge
 │
@@ -498,7 +498,7 @@ At runtime, consumers use dynamic import for type-safe access to the accessor fu
 const { getSubagentsService } = await import("@yefengr/pi-subagents");
 const svc = getSubagentsService();
 if (svc) {
-  svc.spawn("Explore", "Check for stale TODOs");
+  svc.spawn("general-purpose", "Check for stale TODOs");
 }
 ```
 
