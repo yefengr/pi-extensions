@@ -59,31 +59,26 @@ describe("AgentTool", () => {
 
 	it("derives type list from registry — includes default agents in description", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
-		// testRegistry loads default agents: general-purpose, Explore, Plan
+		// testRegistry loads the built-in default agent: general-purpose
 		expect(def.description).toContain("- general-purpose: General-purpose agent");
-		expect(def.description).toContain("- Explore: Fast codebase exploration agent");
 	});
 
 	it("lists the built-in agent guidelines in registry order", () => {
 		const def = makeTool(createToolDeps()).toToolDefinition();
 		const guidelines = [
 			"- Use general-purpose for complex tasks that need file editing.",
-			"- Use Explore for codebase searches and code understanding.",
-			"- Use Plan for architecture and implementation planning.",
 		];
 		for (const line of guidelines) expect(def.description).toContain(line);
 		const positions = guidelines.map((line) => def.description.indexOf(line));
 		expect(positions).toEqual([...positions].sort((a, b) => a - b));
 	});
 
-	it.for(["Explore", "Plan", "general-purpose"])(
-		"omits the type-list entry and guideline for a disabled built-in %s",
-		(name) => {
-			const def = makeTool(createToolDepsWithDisabledBuiltInAgents(name)).toToolDefinition();
-			expect(def.description).not.toContain(`- ${name}:`);
-			expect(def.description).not.toContain(`- Use ${name} for `);
-		},
-	);
+	it("omits the type-list entry and guideline for a disabled built-in", () => {
+		const name = "general-purpose";
+		const def = makeTool(createToolDepsWithDisabledBuiltInAgents(name)).toToolDefinition();
+		expect(def.description).not.toContain(`- ${name}:`);
+		expect(def.description).not.toContain(`- Use ${name} for `);
+	});
 
 	it("calls registry.reload() on each execute", async () => {
 		const deps = createToolDeps();

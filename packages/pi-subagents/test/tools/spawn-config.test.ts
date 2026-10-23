@@ -38,6 +38,11 @@ function makeBudgetProfileRegistry(budgets: Partial<AgentConfig>): AgentTypeRegi
 /** Minimal registry with default agents only. */
 const testRegistry = new AgentTypeRegistry(() => new Map());
 
+/** Registry with one replace-mode agent; no built-in agent uses replace mode anymore. */
+const replaceRegistry = new AgentTypeRegistry(
+  () => new Map([["reader", makeAgentConfig({ name: "reader", displayName: "Reader" })]]),
+);
+
 /** Shorthand for building ModelInfo. */
 function makeModelInfo(overrides: Partial<Parameters<typeof resolveSpawnConfig>[2]> = {}) {
   return {
@@ -83,13 +88,13 @@ describe("resolveSpawnConfig — type resolution", () => {
 
   it("sets displayName from registry", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
-      testRegistry,
+      { subagent_type: "reader", prompt: "test", description: "d" },
+      replaceRegistry,
       makeModelInfo(),
       defaultSettings,
     );
     if ("error" in result) return;
-    expect(result.identity.displayName).toBe("Explore");
+    expect(result.identity.displayName).toBe("Reader");
   });
 
   it("returns an error for a disabled agent type (exact match)", () => {
@@ -590,13 +595,13 @@ describe("resolveSpawnConfig — detailBase and tags", () => {
 
   it("omits mode label for replace-mode agents", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
-      testRegistry,
+      { subagent_type: "reader", prompt: "test", description: "d" },
+      replaceRegistry,
       makeModelInfo(),
       defaultSettings,
     );
     if ("error" in result) return;
-    // Explore has promptMode: "replace" → no mode label, no invocation overrides
+    // The replace-mode agent has no mode label and no invocation overrides
     expect(result.presentation.agentTags).toEqual([]);
   });
 
@@ -614,13 +619,13 @@ describe("resolveSpawnConfig — detailBase and tags", () => {
 
   it("sets tags to undefined on detailBase for replace-mode agents with no invocation overrides", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "test", description: "d" },
-      testRegistry,
+      { subagent_type: "reader", prompt: "test", description: "d" },
+      replaceRegistry,
       makeModelInfo(),
       defaultSettings,
     );
     if ("error" in result) return;
-    // Explore has promptMode: "replace" and no invocation overrides → no tags
+    // The replace-mode agent has no invocation overrides → no tags
     expect(result.presentation.detailBase.tags).toBeUndefined();
   });
 });
@@ -628,13 +633,13 @@ describe("resolveSpawnConfig — detailBase and tags", () => {
 describe("resolveSpawnConfig — prompt and rawType passthrough", () => {
   it("passes through prompt and rawType", () => {
     const result = resolveSpawnConfig(
-      { subagent_type: "Explore", prompt: "search for bugs", description: "bug search" },
-      testRegistry,
+      { subagent_type: "reader", prompt: "search for bugs", description: "bug search" },
+      replaceRegistry,
       makeModelInfo(),
       defaultSettings,
     );
     if ("error" in result) return;
     expect(result.execution.prompt).toBe("search for bugs");
-    expect(result.identity.rawType).toBe("Explore");
+    expect(result.identity.rawType).toBe("reader");
   });
 });

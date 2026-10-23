@@ -6,7 +6,7 @@
  *
  *   const { getSubagentsService } = await import("@yefengr/pi-subagents");
  *   const svc = getSubagentsService();
- *   svc?.spawn("Explore", "Check for stale TODOs");
+ *   svc?.spawn("general-purpose", "Check for stale TODOs");
  */
 
 import type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent";

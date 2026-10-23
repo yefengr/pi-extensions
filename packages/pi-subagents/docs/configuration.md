@@ -10,18 +10,19 @@ For the tools, commands, events, and service API, see the [README](../README.md)
 | Type              | Tools                      | Model                         | Prompt Mode            | Description                                                                                      |
 | ----------------- | -------------------------- | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
 | `general-purpose` | all 7                      | inherit                       | `append` (parent twin) | Inherits the parent's full system prompt — same rules, CLAUDE.md, project conventions            |
-| `Explore`         | read, bash, grep, find, ls | `anthropic/claude-haiku-4-5-20251001` (exact pin) | `replace`              | Fast codebase exploration (read-only); inherits the parent prompt as a base                      |
-| `Plan`            | read, bash, grep, find, ls | inherit                       | `replace`              | Software architect for implementation planning (read-only); inherits the parent prompt as a base |
 
 The `general-purpose` agent is a **parent twin** — it receives the parent's entire system prompt plus a sub-agent context bridge, so it follows the same rules the parent does.
-Explore and Plan use `replace` mode: the parent prompt is the cacheable base and their specialist read-only instructions are appended last, giving them the final say.
-Explore's model is an exact pin, not a fallback: if it is unavailable, unauthenticated, or cannot be resolved by the registry, the spawn fails instead of inheriting the parent model.
+It is also the fallback target for unknown agent types, so a mistyped or removed type degrades to the parent twin instead of failing.
+
+An agent configured with `prompt_mode: replace` keeps full control of its prompt: the parent prompt is the cacheable base and the specialist instructions are appended last, giving them the final say.
+A `model` set in the agent definition is resolved against the registry; when the pinned model is unavailable the spawn inherits the parent model.
 
 In every mode, a child that runs somewhere other than the parent — one given an isolated workspace by a `WorkspaceProvider` — does not inherit the parent's `Current working directory:` footer.
 That line is stripped from the inherited prompt, leaving the fresh footer Pi appends for the child session's own directory as the single, correct claim; without the strip, the child follows the parent's path instead.
 A child sharing the parent's directory inherits the prompt untouched, so its prefix stays byte-identical to the parent's.
 
 Default agents can be **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`). Enablement is managed by `/subagents:agents` and stored per project or globally in `subagents.json`.
+A custom agent joins the default list with `is_default: true`; its `tool_guideline` then becomes a one-line hint in the `subagent` tool description.
 
 ## Custom Agents
 

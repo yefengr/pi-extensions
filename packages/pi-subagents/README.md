@@ -14,7 +14,7 @@ The local baseline comes from `@gotgenes/pi-subagents@19.3.4` and has since evol
 - **Mid-run steering** — inject messages into running agents to redirect their work without restarting
 - **Session resume** — pick up where an agent left off, preserving full conversation context
 - **Bounded invocations** — strict turn and runtime budgets, a reserved wrap-up window, and independent queue deadlines keep every invocation finite
-- **Case-insensitive agent types** — `"explore"`, `"Explore"`, `"EXPLORE"` all work.
+- **Case-insensitive agent types** — `"general-purpose"`, `"GENERAL-PURPOSE"`, `"General-Purpose"` all work.
   Unknown types fall back to general-purpose with a note
 - **Fuzzy model selection** — specify models by name (`"haiku"`, `"sonnet"`) instead of full IDs, with automatic filtering to only available/configured models
 - **Context inheritance** — optionally fork the parent conversation into a sub-agent so it knows what's been discussed
@@ -54,7 +54,7 @@ The parent agent spawns sub-agents using the `subagent` tool:
 
 ```text
 subagent({
-  subagent_type: "Explore",
+  subagent_type: "general-purpose",
   prompt: "Find all files that handle authentication",
   description: "Find auth files",
   run_in_background: true,
@@ -72,7 +72,7 @@ The extension renders a persistent widget above the editor showing active backgr
 ● Agents
 ├─ ⠹ Agent  Refactor auth module · ↻5≤30 · 5 tool uses · 33.8k token (62%) · 12.3s
 │    ⎿  editing 2 files…
-├─ ⠹ Explore  Find auth files · ↻3 · 3 tool uses · 12.4k token (8%) · 4.1s
+├─ ⠹ Scout  Find auth files · ↻3 · 3 tool uses · 12.4k token (8%) · 4.1s
 │    ⎿  searching…
 ├─ ⠹ Agent  Long-running task · ↻42 · 38 tool uses · 91.0k token (84% · ⇊2) · 2m17s
 │    ⎿  reading…
@@ -286,7 +286,7 @@ Access the subagent service from another extension at runtime:
 ```typescript
 const { getSubagentsService } = await import("@yefengr/pi-subagents");
 const svc = getSubagentsService();
-svc?.spawn("Explore", "Check for stale TODOs");
+svc?.spawn("general-purpose", "Check for stale TODOs");
 ```
 
 Declare this package as an optional peer dependency.
@@ -340,7 +340,7 @@ Anything attaching to the core either subscribes to a lifecycle event, or regist
 - _Policy about what a child may do._
   Tool restriction is allow/ask/deny in a permission layer, not a binary hide in a spawner — see [Migrating from `disallowed_tools`](#migrating-from-disallowed_tools).
 - _Widening a child's tool allowlist on the agent's behalf._
-  An agent's `tools:` frontmatter is the complete allowlist and the only mechanism that widens it, because a settings-level list would hand a read-only `Explore` agent write-capable tools from a file its author never saw.
+  An agent's `tools:` frontmatter is the complete allowlist and the only mechanism that widens it, because a settings-level list would hand a read-only agent write-capable tools from a file its author never saw.
 - _A global run-mode default._
   Foreground or background is a per-invocation argument and a per-agent frontmatter key; a global flip changes every existing agent file at once.
 - _Provider seams with no consumer._

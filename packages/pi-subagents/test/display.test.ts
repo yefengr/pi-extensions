@@ -35,10 +35,6 @@ describe("getDisplayName", () => {
     expect(getDisplayName("my-agent", registry)).toBe("my-agent");
   });
 
-  it("uses registry to resolve Explore displayName", () => {
-    expect(getDisplayName("Explore", testRegistry)).toBe("Explore");
-  });
-
   it("uses registry to resolve general-purpose displayName", () => {
     expect(getDisplayName("general-purpose", testRegistry)).toBe("Agent");
   });
@@ -60,7 +56,17 @@ describe("getPromptModeLabel", () => {
   });
 
   it("returns undefined for replace promptMode", () => {
-    expect(getPromptModeLabel("Explore", testRegistry)).toBeUndefined();
+    const customAgents = new Map<string, AgentConfig>([[
+      "reader",
+      {
+        name: "reader",
+        description: "test",
+        systemPrompt: "",
+        promptMode: "replace",
+      },
+    ]]);
+    const registry = new AgentTypeRegistry(() => customAgents);
+    expect(getPromptModeLabel("reader", registry)).toBeUndefined();
   });
 });
 
