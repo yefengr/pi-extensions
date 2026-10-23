@@ -29,6 +29,7 @@ interface Harness {
   customCalls: number;
   registryCalls: number;
   doneCalls: number;
+  renderCalls: number;
   component: (Component & { focused?: boolean }) | null;
 }
 
@@ -54,10 +55,17 @@ function createHarness(mode: "tui" | "rpc" | "print", options: { rows?: number; 
     customCalls: 0,
     registryCalls: 0,
     doneCalls: 0,
+    renderCalls: 0,
     component: null,
   };
 
-  const tui = { requestRender: () => {}, terminal: { rows: options.rows ?? 30 } };
+  const tui = {
+    requestRender() {
+      assert.equal(this, tui, "requestRender must retain its TUI receiver");
+      harness.renderCalls += 1;
+    },
+    terminal: { rows: options.rows ?? 30 },
+  };
   const ctx = {
     mode,
     hasUI: true,
@@ -196,6 +204,30 @@ describe("notify commands and TUI mode guards", () => {
       });
     }
   });
+
+  for (const command of [NOTIFY_COMMANDS.SETTINGS, NOTIFY_COMMANDS.RECAP_MODEL]) {
+    it(`preserves the TUI render receiver for ${command} input and cancel`, async () => {
+      const harness = createHarness("tui");
+      await withTempAgentDir(async () => {
+        await harness.run(command);
+        assert.ok(harness.component?.handleInput);
+        harness.component.focused = true;
+        harness.component.render(70);
+
+        const beforeInput = harness.renderCalls;
+        assert.doesNotThrow(() => harness.component!.handleInput!("\x1b[B"));
+        assert.ok(harness.renderCalls > beforeInput, "navigation requests a render on the TUI instance");
+
+        const beforeCancel = harness.renderCalls;
+        assert.doesNotThrow(() => pressCancel(harness));
+        assert.ok(harness.renderCalls > beforeCancel, "cancel preserves the render receiver");
+        assert.equal(harness.doneCalls, 1);
+        assert.equal(existsSync(resolveConfigPath()), false);
+        assert.equal(harness.notes.length, 0);
+        assert.equal(harness.registryCalls, 1);
+      });
+    });
+  }
 
   it("propagates focus to the standalone recap model input", async () => {
     const harness = createHarness("tui", { rows: 30 });

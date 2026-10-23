@@ -41,7 +41,7 @@ export function registerNotifyCommands(pi: ExtensionAPI): void {
         });
         overlay.onClose = once(done);
         overlay.requestRender = () => tui.requestRender();
-        return wrapFocusable(overlay, tui.requestRender);
+        return wrapFocusable(overlay, () => tui.requestRender());
       }, OVERLAY_OPTIONS);
     },
   });
@@ -147,6 +147,6 @@ async function openRecapModelSelector(ctx: ExtensionContext, models: ModelOption
     });
     overlay.onClose = once(done);
     overlay.requestRender = () => tui.requestRender();
-    return wrapFocusable(overlay, tui.requestRender);
+    return wrapFocusable(overlay, () => tui.requestRender());
   }, OVERLAY_OPTIONS);
 }
