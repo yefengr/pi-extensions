@@ -32,6 +32,8 @@ pi install npm:@yefengr/pi-subagents
 
 Run `/reload` or restart Pi after installation. Other extensions can also depend on this package through `@yefengr/pi-subagents`.
 
+The package also ships the package-bundled skill `orchestrate-subagents`, which Pi discovers automatically after installation. It covers capability checks, delegation readiness, ownership and evidence handoff, review triggers, and lifecycle closeout.
+
 When developing directly in the package directory:
 
 ```bash
