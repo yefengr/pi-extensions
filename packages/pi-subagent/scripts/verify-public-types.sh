@@ -129,5 +129,9 @@ npm install --prefix "$CONSUMER" --ignore-scripts --no-audit --no-fund \
   "typebox@1.3.7" \
   >/dev/null
 
-"$PKG_DIR/node_modules/.bin/tsc" -p "$CONSUMER/tsconfig.json"
+TSC_BIN="$(command -v tsc || true)"
+if [[ -z "$TSC_BIN" ]]; then
+  TSC_BIN="$PKG_DIR/node_modules/.bin/tsc"
+fi
+"$TSC_BIN" -p "$CONSUMER/tsconfig.json"
 echo "OK: external consumer type-checks against packed @yefengr/pi-subagent"
