@@ -11,8 +11,8 @@ import {
 describe("notification event contract", () => {
   it("uses only the agent-tools namespace for emitted events", () => {
     assert.deepEqual(NOTIFY_EVENTS, {
-      MODULE_READY: "pi-notify:module-ready",
-      SENT: "pi-notify:sent",
+      MODULE_READY: "notify:module-ready",
+      SENT: "notify:sent",
     });
     assert.equal(NOTIFY_MODULE_NAME, "pi-notify");
     assert.equal(NOTIFY_TOOL_NAME, "notify_user");
@@ -28,6 +28,6 @@ describe("notification event contract", () => {
   });
 
   it("uses the current package version as the missing-metadata fallback", () => {
-    assert.equal(getPackageVersion("/path/that/does/not/exist"), "0.3.2");
+    assert.equal(getPackageVersion("/path/that/does/not/exist"), "0.3.3");
   });
 });

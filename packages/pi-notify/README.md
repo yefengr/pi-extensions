@@ -76,7 +76,7 @@ The tool accepts `message`, an optional `title`, and an optional `level`; `level
 - `disabled`: global notifications are turned off;
 - `failed`: writing the terminal protocol sequence failed.
 
-Only `sent` triggers the `pi-notify:sent` event. The returned details and the sent event contain the actual level; only kitty OSC 99 contains the applied `timeoutMs`.
+Only `sent` triggers the `notify:sent` event. The returned details and the sent event contain the actual level; only kitty OSC 99 contains the applied `timeoutMs`.
 
 ## Recap
 

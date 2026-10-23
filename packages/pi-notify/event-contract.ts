@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 /** Events emitted by the local notification extension. */
 export const NOTIFY_EVENTS = {
-  MODULE_READY: "pi-notify:module-ready",
-  SENT: "pi-notify:sent",
+  MODULE_READY: "notify:module-ready",
+  SENT: "notify:sent",
 } as const;
 
 export const PI_LIFECYCLE_EVENTS = {
@@ -34,8 +34,8 @@ export function getPackageVersion(packageDir: string): string {
   try {
     const raw = readFileSync(join(packageDir, "package.json"), "utf-8");
     const parsed = JSON.parse(raw) as { version?: unknown };
-    return typeof parsed.version === "string" ? parsed.version : "0.3.2";
+    return typeof parsed.version === "string" ? parsed.version : "0.3.3";
   } catch {
-    return "0.3.2";
+    return "0.3.3";
   }
 }

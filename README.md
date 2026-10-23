@@ -28,23 +28,23 @@ pi remove npm:@yefengr/pi-monitor
 
 ## Naming
 
-Package names, command names, and capability names follow the same rule. Consistency means the same word, not the same word shape.
+Naming is layered: the capability root stays fixed, while each layer uses the word shape that matches its role.
 
-1. A package is `@yefengr/pi-<capability>`. The capability name is the extension's core ability; do not abbreviate it or drop qualifiers.
-2. The command name is the capability name. Multiple commands use `<capability>:<action>`.
-3. A tool name is the capability name. A single invocation may be singular while the package keeps the plural capability name.
-4. Events and service keys use `<capability>:*`. Cross-package service keys use `@yefengr/pi-<capability>:service`.
-5. A skill name is `<action>-<capability>`, for example `analyze-task-efficiency`.
-6. Do not rename for brevity or word-shape symmetry. Semantics win over appearance.
+1. Capability root: one stable word or phrase per extension, such as `notify`, `monitor`, `task-efficiency`, or `subagents`. Never abbreviate it or replace it with a synonym (`efficiency` for `task-efficiency`, `agent` for `subagents`).
+2. Package: `@yefengr/pi-<capability>`. Plural is allowed when the capability is a set.
+3. Command: `<capability>`. Multiple commands use `<capability>:<action>`.
+4. Tool: `<capability>` or `<capability>_<action>`. A single invocation may use the singular form.
+5. Event, record, and log namespace: `<capability>:*`; log paths use the capability as the directory name. Cross-package service keys use `@yefengr/pi-<capability>:service`, because `Symbol.for` requires global uniqueness.
+6. Skill: `<action>-<capability>`.
 
-| Extension | Package | Command | Tool | Events | Skill |
+Every visible difference follows from these rules; there are no exceptions.
+
+| Capability | Package | Command | Tool | Event / record | Skill |
 |---|---|---|---|---|---|
-| Notifications | `pi-notify` | `notify:*` | `notify_user` | `pi-notify:*` | — |
-| Monitoring | `pi-monitor` | `monitor` | `monitor` | `monitor` | — |
-| Task review | `pi-task-efficiency` | `task-efficiency` | `task_efficiency_*` | `task-efficiency:*` | `analyze-task-efficiency` |
-| Subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | — |
-
-Two visible asymmetries are intentional and allowed by rules 3 and 5: `pi-subagents` is a capability set while the `subagent` tool describes one invocation, and `analyze-task-efficiency` combines an action with the capability name.
+| notify | `pi-notify` | `notify:*` | `notify_user` | `notify:*` | — |
+| monitor | `pi-monitor` | `monitor` | `monitor` | `.pi/logs/monitor` | — |
+| task-efficiency | `pi-task-efficiency` | `task-efficiency` | `task_efficiency_*` | `task-efficiency:*` | `analyze-task-efficiency` |
+| subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | — |
 
 ## Development
 
