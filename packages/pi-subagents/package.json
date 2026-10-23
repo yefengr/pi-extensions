@@ -84,7 +84,7 @@
     "rollup-plugin-dts": "6.5.1",
     "typebox": "1.4.2",
     "typescript": "6.0.3",
-    "vitest": "4.1.8"
+    "vitest": "5.0.5"
   },
   "pi": {
     "extensions": [
