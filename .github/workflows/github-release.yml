@@ -1,0 +1,66 @@
+# npm 批准上线后才创建 Release；标签由 stage 成功后的独立 tag 作业创建，此处不补打。
+name: GitHub Release
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 要补建的历史版本（X.Y.Z），留空使用当前版本
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Derive package matrix from PACKAGES
+        id: matrix
+        run: echo "matrix=$(node scripts/release.mjs matrix)" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Create release after npm approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIR: ${{ matrix.directory }}
+          VERSION: ${{ inputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/github-release.mjs release "$DIR" ${VERSION:+"$VERSION"}

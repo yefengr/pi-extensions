@@ -1,0 +1,39 @@
+name: 功能建议 / Feature request
+description: 建议新功能或改进 / Suggest a new feature or an improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先查看 README 中的包职责与命名规则，避免提出与现有扩展重复的能力。
+        Check the package responsibilities and naming rules in the README first to avoid duplicating an existing extension.
+  - type: dropdown
+    id: component
+    attributes:
+      label: 相关包 / Related package
+      options:
+        - "@yefengr/pi-notify"
+        - "@yefengr/pi-monitor"
+        - "@yefengr/pi-task-efficiency"
+        - "@yefengr/pi-subagents"
+        - 新包 / New package
+        - 不确定 / Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题 / Problem
+      description: 在什么场景下遇到了什么困难 / The situation and the difficulty you ran into
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的方案 / Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的其他方案 / Alternatives considered

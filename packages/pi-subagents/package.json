@@ -59,6 +59,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "build:types": "rollup -c rollup.dts.config.mjs",
     "prepack": "npm run build:types",
     "verify:public-types": "bash scripts/verify-public-types.sh",

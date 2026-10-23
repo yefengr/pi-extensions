@@ -42,6 +42,11 @@ export function selectPackages(eventName, ref, selectedPackage) {
   return [selected];
 }
 
+export function packageMatrix() {
+  // GitHub Actions 的 matrix 只暴露目录名；包清单仍以 PACKAGES 为唯一真源。
+  return { include: PACKAGES.map(({ directory }) => ({ directory })) };
+}
+
 export async function readPreviousVersion(before, directory, run = exec) {
   const file = `packages/${directory}/package.json`;
   // 先确认提交可读；只有成功的 ls-tree 空结果才代表旧文件不存在。
@@ -147,6 +152,14 @@ async function main(command) {
     }
     return;
   }
+  if (command === "matrix") {
+    process.stdout.write(`${JSON.stringify(packageMatrix())}\n`);
+    return;
+  }
+  if (command === "validate-npm") {
+    validateNpmVersion((await exec("npm", ["--version"])).stdout.trim());
+    return;
+  }
   if (command === "validate-artifact") {
     validateNpmVersion((await exec("npm", ["--version"])).stdout.trim());
     const tarball = await validateArtifact(process.env.ARTIFACT_DIRECTORY, {
@@ -157,7 +170,7 @@ async function main(command) {
     await output("tarball", tarball);
     return;
   }
-  throw new Error("Usage: node scripts/release.mjs <plan|validate-artifact>");
+  throw new Error("Usage: node scripts/release.mjs <plan|matrix|validate-npm|validate-artifact>");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

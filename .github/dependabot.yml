@@ -1,0 +1,29 @@
+# 依赖更新：每周为 npm workspaces 与 GitHub Actions 开升级 PR。
+# 不启用自动合并；升级 PR 与普通改动一样经过 CI 的 verify 检查后人工合并。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+    groups:
+      # 开发依赖的小版本与补丁合并为一个 PR，减少评审成本；运行时依赖与大版本仍单独提出。
+      development-dependencies:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"

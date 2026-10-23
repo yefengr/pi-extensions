@@ -13,8 +13,11 @@
   },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test:release && npm run test --workspaces --if-present",
-    "test:release": "node --test scripts/release.test.mjs",
+    "test:release": "node --test scripts/*.test.mjs",
+    "check:docs": "node scripts/check-doc-links.mjs",
+    "verify": "npm run typecheck && npm run lint && npm test && npm run check:docs && npm run pack:dry-run",
     "pack:dry-run": "npm pack --dry-run --workspaces"
   },
   "devDependencies": {

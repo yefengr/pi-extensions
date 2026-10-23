@@ -50,11 +50,13 @@ Every visible difference follows from these rules; there are no exceptions.
 
 ```bash
 npm install
+npm run verify       # typecheck + lint + tests + doc links + packed contents
 npm run typecheck
 npm test
+npm run check:docs
 ```
 
-Verify a single package:
+Use the Node version from `.node-version` for development (for example `nvm use` or `fnm use`). Node 22.19 remains the minimum supported version. `npm run verify` is the same entry point CI uses; CI runs it on both the `.node-version` runtime and Node 22.19, the minimum version declared in `engines`. Verify a single package:
 
 ```bash
 npm test -w @yefengr/pi-monitor
@@ -93,15 +95,19 @@ npm version patch --workspace @yefengr/pi-notify --no-git-tag-version
 
 Commit the updated `package.json` and `package-lock.json`, then push to `main`. The workflow compares versions with the push's previous commit and checks the exact versions on the npm registry. Already-public versions are skipped; registry errors stop the workflow rather than being treated as unpublished versions.
 
-For unpublished candidates, the workflow runs the reusable CI checks on Node.js 22.19.0, then each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) on Node.js 24.22.0. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
+For unpublished candidates, the reusable CI checks run on both the `.node-version` runtime and Node 22.19, the minimum supported version. Each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) then run on the `.node-version` runtime. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
+
+After a successful staging run, a `tag` job creates the annotated tag `<package-directory>-v<version>` (for example `pi-notify-v0.3.4`) on the release commit. It holds only `contents: write`, separately from the `id-token: write` used by the staging job. If the job fails, create an annotated tag at that commit by hand; do not rerun the release workflow, because that would stage the same version again. The scheduled release workflow creates the GitHub Release after npm approval.
 
 **Successful staging is not a public release.** Open npmjs.com **Staged Packages**, review the pending package, and approve it with 2FA to make it public. A workflow that skips all versions stages nothing.
+
+After approval, `.github/workflows/github-release.yml` checks npm every 30 minutes (at minute 7 and 37) and creates the GitHub Release once the version is public. A version still awaiting approval is skipped until a later run. The workflow never creates tags. If a version is public but its tag is missing, a scheduled run records a warning and skips it so existing versions do not fail every 30 minutes; a manual run fails and asks you to create the tag by hand. Run it manually with the `version` input to backfill a historical release; create the annotated tag at that version's release commit first.
 
 To retry a single package, run the **Release** workflow manually on `main` and select its package name. Other branches are rejected, and already-public versions are skipped. If that version is still awaiting approval, another staging attempt may fail: check the existing Staged Packages entry and approve it, or reject the old entry before retrying. The workflow never automatically approves or replaces pending entries.
 
 If staging fails with `ENEEDAUTH`, the stage job first reports whether the OIDC endpoint was present. A missing endpoint means the job lost `id-token: write` or did not run from `main`; an `oidc` message in the verbose npm log means the registry rejected the exchange, so recheck the Trusted Publisher owner, repository, and workflow filename.
 
-This flow does not update installed Pi copies, deploy a server, or create GitHub tags or releases. If a package was published under a name that was later reverted, mark the old name with `npm deprecate` pointing to the current package.
+This flow does not update installed Pi copies or deploy a server. It does create the release tags and GitHub Releases described above. If a package was published under a name that was later reverted, mark the old name with `npm deprecate` pointing to the current package.
 
 ## License
 

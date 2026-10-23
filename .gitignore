@@ -3,3 +3,15 @@ dist/
 coverage/
 *.tgz
 .DS_Store
+
+# 环境变量与密钥
+.env
+.env.local
+.env.*.local
+
+# 日志与构建缓存
+*.log
+*.tsbuildinfo
+
+# 当前任务的项目内临时产物（.pi/tmp 等）
+.pi/
