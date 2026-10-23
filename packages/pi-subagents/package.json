@@ -80,7 +80,7 @@
     "@earendil-works/pi-ai": "1.4.0",
     "@earendil-works/pi-coding-agent": "1.4.0",
     "@earendil-works/pi-tui": "1.4.0",
-    "@types/node": "22.19.15",
+    "@types/node": "22.20.5",
     "rollup": "4.64.12",
     "rollup-plugin-dts": "6.5.1",
     "typebox": "1.4.2",
