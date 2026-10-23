@@ -33,7 +33,7 @@ Naming is layered: the capability root stays fixed, while each layer uses the wo
 1. Capability root: one stable word or phrase per extension, such as `notify`, `monitor`, `task-efficiency`, or `subagents`. Never abbreviate it or replace it with a synonym (`efficiency` for `task-efficiency`, `agent` for `subagents`).
 2. Package: `@yefengr/pi-<capability>`. Plural is allowed when the capability is a set.
 3. Command: `<capability>`. Multiple commands use `<capability>:<action>`.
-4. Tool: `<capability>` or `<capability>_<action>`. A single invocation may use the singular form.
+4. Tool: `<capability>`, `<capability>_<action>`, or `<capability>_<object>`. Use the singular capability form when one call operates on a single element.
 5. Event, record, and log namespace: `<capability>:*`; log paths use the capability as the directory name. Cross-package service keys use `@yefengr/pi-<capability>:service`, because `Symbol.for` requires global uniqueness.
 6. Skill: `<action>-<capability>`.
 
