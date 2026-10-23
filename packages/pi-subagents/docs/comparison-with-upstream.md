@@ -1,6 +1,6 @@
 # Comparison with upstream
 
-> Historical document imported from the verified `@gotgenes/pi-subagents@19.3.4` baseline. It describes the lineage and comparison state at that revision, not the current maintenance policy of `@yefengr/pi-subagent`; see [`../UPSTREAM.md`](../UPSTREAM.md).
+> Historical document imported from the verified `@gotgenes/pi-subagents@19.3.4` baseline. It describes the lineage and comparison state at that revision, not the current maintenance policy of `@yefengr/pi-subagents`; see [`../UPSTREAM.md`](../UPSTREAM.md).
 
 `@gotgenes/pi-subagents` began as a fork of [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents) by [@tintinweb](https://github.com/tintinweb).
 The original design — autonomous subagent dispatch, the live widget, the conversation viewer, custom agent types — is the foundation everything here builds on.
