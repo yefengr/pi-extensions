@@ -1,6 +1,10 @@
 name: Release
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/*/package.json"
   workflow_dispatch:
     inputs:
       package:
@@ -15,21 +19,123 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  plan:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      has-packages: ${{ steps.plan.outputs.has-packages }}
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22.19.0"
+          node-version: "24.22.0"
+
+      - name: Plan unpublished version changes
+        id: plan
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_BEFORE: ${{ github.event.before }}
+          RELEASE_PACKAGE: ${{ inputs.package }}
+        run: node scripts/release.mjs plan
+
+  verify:
+    needs: plan
+    if: needs.plan.outputs.has-packages == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  pack:
+    needs: [plan, verify]
+    if: needs.plan.outputs.has-packages == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      PACKAGE_NAME: ${{ matrix.name }}
+      PACKAGE_DIRECTORY: ${{ matrix.directory }}
+      PACKAGE_VERSION: ${{ matrix.version }}
+      ARTIFACT_DIRECTORY: release-artifact
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
           cache: npm
-          registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
 
-      - name: Publish
-        run: npm publish -w "${{ inputs.package }}" --provenance --access public
+      - name: Run package release checks
+        run: npm run prepublishOnly -w "$PACKAGE_NAME"
+
+      - name: Pack workspace with its prepack hook
+        run: |
+          mkdir -p "$ARTIFACT_DIRECTORY"
+          npm pack -w "$PACKAGE_NAME" --pack-destination "$ARTIFACT_DIRECTORY"
+
+      - name: Validate packed identity
+        run: node scripts/release.mjs validate-artifact
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.directory }}-${{ matrix.version }}
+          path: ${{ env.ARTIFACT_DIRECTORY }}/*.tgz
+          if-no-files-found: error
+
+  stage:
+    needs: [plan, pack]
+    if: needs.plan.outputs.has-packages == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      PACKAGE_NAME: ${{ matrix.name }}
+      PACKAGE_DIRECTORY: ${{ matrix.directory }}
+      PACKAGE_VERSION: ${{ matrix.version }}
+      ARTIFACT_DIRECTORY: release-artifact
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.0"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ matrix.directory }}-${{ matrix.version }}
+          path: ${{ env.ARTIFACT_DIRECTORY }}
+
+      - name: Validate npm version and downloaded identity
+        id: artifact
+        run: node scripts/release.mjs validate-artifact
+
+      - name: Submit tarball for npm 2FA approval
+        env:
+          TARBALL: ${{ steps.artifact.outputs.tarball }}
+        run: npm stage publish "$TARBALL" --provenance --access public --ignore-scripts --registry=https://registry.npmjs.org
+
+      - name: Explain pending approval
+        run: |
+          printf '### %s@%s staged\n\nOpen npmjs.com **Staged Packages** and approve with 2FA. This workflow has not publicly released the package.\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" >> "$GITHUB_STEP_SUMMARY"

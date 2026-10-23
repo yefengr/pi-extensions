@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   verify:
@@ -23,6 +27,9 @@ jobs:
         run: |
           npm run typecheck
           npm run check -w @yefengr/pi-subagents
+
+      - name: Test release automation
+        run: npm run test:release
 
       - name: Test notify
         run: timeout 120 npm test -w @yefengr/pi-notify

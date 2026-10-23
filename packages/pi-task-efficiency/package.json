@@ -1,6 +1,6 @@
 {
   "name": "@yefengr/pi-task-efficiency",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Task efficiency review for Pi with scope confirmation, deterministic metrics, and actionable suggestions",
   "type": "module",
   "license": "MIT",

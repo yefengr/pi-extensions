@@ -69,9 +69,37 @@ npm pack --dry-run -w @yefengr/pi-notify
 
 ## Publishing
 
-Releases use manual semantic versioning. The first version of each package was published from a 2FA-authenticated terminal; later versions can use npm Trusted Publishing (GitHub Actions OIDC) through `.github/workflows/release.yml` once the publisher is configured on npmjs.com.
+Releases use manual semantic versioning and npm Trusted Publishing (GitHub Actions OIDC). A push to `main` that changes a package's `package.json` version starts `.github/workflows/release.yml`. Dependency or source changes without a version bump do not release a package.
 
-If a package was published under a name that was later reverted, mark the old name with `npm deprecate` pointing to the current package.
+### One-time npm setup
+
+Configure a Trusted Publisher on npmjs.com for **each** of the four published packages:
+
+- Provider: GitHub Actions
+- Owner: `yefengr`
+- Repository: `pi-extensions`
+- Workflow filename: `release.yml`
+- Environment: leave empty (this workflow does not use a GitHub environment)
+
+Do **not** enable the option that allows direct `npm publish`; `npm stage publish` remains allowed. No npm token is needed. Being listed as published above does not mean a package's Trusted Publisher has already been configured.
+
+### Release a version
+
+For example:
+
+```bash
+npm version patch --workspace @yefengr/pi-notify --no-git-tag-version
+```
+
+Commit the updated `package.json` and `package-lock.json`, then push to `main`. The workflow compares versions with the push's previous commit and checks the exact versions on the npm registry. Already-public versions are skipped; registry errors stop the workflow rather than being treated as unpublished versions.
+
+For unpublished candidates, the workflow runs the reusable CI checks on Node.js 22.19.0, then each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) on Node.js 24.22.0. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
+
+**Successful staging is not a public release.** Open npmjs.com **Staged Packages**, review the pending package, and approve it with 2FA to make it public. A workflow that skips all versions stages nothing.
+
+To retry a single package, run the **Release** workflow manually on `main` and select its package name. Other branches are rejected, and already-public versions are skipped. If that version is still awaiting approval, another staging attempt may fail: check the existing Staged Packages entry and approve it, or reject the old entry before retrying. The workflow never automatically approves or replaces pending entries.
+
+This flow does not update installed Pi copies, deploy a server, or create GitHub tags or releases. If a package was published under a name that was later reverted, mark the old name with `npm deprecate` pointing to the current package.
 
 ## License
 

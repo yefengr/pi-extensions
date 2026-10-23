@@ -1,6 +1,6 @@
 {
   "name": "@yefengr/pi-monitor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Background command monitoring for Pi with one-shot or continuous checks and notification-only or explained delivery",
   "type": "module",
   "language": "zh-CN",
