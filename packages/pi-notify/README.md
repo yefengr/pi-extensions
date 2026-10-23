@@ -43,6 +43,18 @@ All configuration is maintained through commands; manual JSON editing is not req
 ~/.pi/agent/config/notify.json
 ```
 
+## Settings UI
+
+`/notify:settings` opens a single panel that edits a draft copy of the configuration:
+
+- `Enter` edits the selected item: switches toggle their value, `Recap 模型` opens the model sub-page, and `保存设置` writes the draft to `notify.json`.
+- `Space` toggles the selected switch; `PageUp`/`PageDown` move by the number of rows actually visible; `Esc` cancels and never writes the draft.
+- The model sub-page only updates the draft. It never saves by itself, and leaving it does not persist the chosen model.
+- The selected command keys follow the current Pi keybindings; the footer shows the configured bindings and highlights cancel when the panel is narrow.
+- If writing fails, the panel keeps the draft and reports the cause instead of closing.
+
+`/notify:recap-model` is the independent model command: confirming a model writes it to the configuration immediately, without the draft step. On a terminal too short for a list, the panel only shows a resize hint and the cancel key, and no hidden item can be confirmed, toggled or saved.
+
 ## Lifecycle Events
 
 The extension listens only to Pi's native lifecycle and does not depend on events emitted by other extensions.

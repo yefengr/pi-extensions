@@ -163,13 +163,14 @@ List all built-in and custom agent types, including disabled types. Select an ag
 
 ### `/subagents:settings`
 
-Interactive list to tune max concurrency, max turns, reserved wrap-up turns, maximum execution duration, maximum queue wait, abort grace, the two session-retention windows, and whether ESC aborts every subagent.
-The numeric settings open an input prompt; the abort-on-ESC entry is a direct flip.
+A Chinese settings list that tunes max concurrency, max turns, reserved wrap-up turns, maximum execution duration, maximum queue wait, abort grace, the two session-retention windows, and whether ESC aborts every subagent.
+The list states that edits take effect immediately; choosing a numeric entry opens a native input prompt and the abort-on-ESC entry is a direct flip. Cancelling the list only closes it — it never promises to undo an applied value.
 Changes persist across pi restarts (see [Persistent Settings](./docs/configuration.md#persistent-settings)).
 
 ### `/subagents:sessions`
 
 Pick any subagent — running, or completed with its live session already released — and read its full session transcript in pi's native per-entry viewer.
+The reader overlay uses the reader tier (90% width, 85% height, one row/column of margin) with a Chinese title and footer; its navigation follows your configured `tui.select.*` keybindings, and the footer hint shows the bindings that are actually active. Live output is followed only while you are at the bottom; scrolling up pauses following and returning to the bottom resumes it. A terminal too short for the body shows a resize hint while keeping the exit key available.
 Read-only: no steering, no session takeover (steering lives in the `steer_subagent` tool and the background widget).
 
 Creating and editing agent definitions is not a command — write an agent `.md` file in your editor, or ask a pi session to generate one (see [Custom Agents](./docs/configuration.md#custom-agents)).

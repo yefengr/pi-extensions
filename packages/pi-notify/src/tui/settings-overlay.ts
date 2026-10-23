@@ -1,159 +1,375 @@
-import type { Component } from "@earendil-works/pi-tui";
-import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { Theme } from "@earendil-works/pi-coding-agent";
+import type {
+  Component,
+  Focusable,
+  KeybindingsManager,
+  SettingItem,
+  SettingsListTheme,
+} from "@earendil-works/pi-tui";
+import { SettingsList } from "@earendil-works/pi-tui";
 import { EVENT_KEYS, loadConfig, saveConfig } from "../settings.js";
 import type { NotifyConfig, NotifyEventKey } from "../types.js";
-import { boxInnerWidth } from "../ui.js";
+import {
+  type PanelFeedback,
+  type PanelTheme,
+  type PanelView,
+  keyHint,
+  panelChromeRows,
+  panelContentWidth,
+  renderPanel,
+  renderShortPanel,
+  shortScreenNotice,
+  trimTrailingBlank,
+  visibleWidthSafe,
+} from "../ui.js";
+import { ModelPickerPage, type ModelOption } from "./model-picker.js";
 
 const EVENT_LABELS: Record<NotifyEventKey, string> = {
-  agent_end: "Agent 运行结束",
-  agent_settled: "Agent 已完成",
-  session_shutdown: "会话结束",
+  agent_end: "事件：Agent 运行结束",
+  agent_settled: "事件：Agent 已完成",
+  session_shutdown: "事件：会话结束",
 };
 
-type Section = "general" | "events";
+const TOGGLE_VALUES = ["已启用", "已关闭"];
 
-export class NotifySettingsOverlay implements Component {
-  private config: NotifyConfig = loadConfig();
-  private section: Section = "general";
-  private selectedIndex = 0;
-  private saved = false;
-  private theme: Theme | null = null;
+type SettingId =
+  | "enabled"
+  | "recap.enabled"
+  | "recap.model"
+  | "event.agent_end"
+  | "event.agent_settled"
+  | "event.session_shutdown"
+  | "save";
+
+const SETTING_ORDER: readonly SettingId[] = [
+  "enabled",
+  "recap.enabled",
+  "recap.model",
+  "event.agent_end",
+  "event.agent_settled",
+  "event.session_shutdown",
+  "save",
+];
+
+/** 面板容纳标题、列表和操作提示所需的最小高度预算。 */
+const MIN_SETTINGS_ROWS = 10;
+
+export interface NotifySettingsOverlayOptions {
+  models: ModelOption[];
+  keybindings: KeybindingsManager;
+  theme: PanelTheme;
+  /** 有效覆盖层行预算（调用方已按终端高度和 80% 上限换算）。 */
+  getRows: () => number;
+  /** Pi 的 outputPad：1 时由本外壳在正文/标题/提示外侧留一列。 */
+  outputPad?: number;
+}
+
+/**
+ * 通知设置面板：SettingsList 负责设置项与取值切换，模型选择切换到原生
+ * Input + SelectList 子页面。所有修改先写入整页草稿，只有「保存设置」写盘。
+ * 选择状态由稳定 id 维护，导航/翻页由包装层处理后再交给原生列表。
+ */
+export class NotifySettingsOverlay implements Component, Focusable {
+  private readonly options: NotifySettingsOverlayOptions;
+  private draft: NotifyConfig;
+  private baseline: string;
+  private page: "list" | "model" = "list";
+  private modelPage: ModelPickerPage | null = null;
+  private list: SettingsList | null = null;
+  private listMaxVisible = 0;
+  private selectedId: SettingId = "enabled";
+  private feedback: PanelFeedback | null = null;
+  private focusState = false;
+
   onClose?: () => void;
   requestRender?: () => void;
-  onOpenModelSelector?: () => void;
 
-  setTheme(theme: Theme): void {
-    this.theme = theme;
+  constructor(options: NotifySettingsOverlayOptions) {
+    this.options = options;
+    this.draft = loadConfig();
+    this.baseline = serialize(this.draft);
   }
 
-  invalidate(): void {}
+  get focused(): boolean {
+    return this.focusState;
+  }
 
-  reload(): void {
-    this.config = loadConfig();
-    this.requestRender?.();
+  set focused(value: boolean) {
+    this.focusState = value;
+    if (this.modelPage) this.modelPage.focused = value;
+  }
+
+  setTheme(theme: PanelTheme): void {
+    this.options.theme = theme;
+    this.list = null;
+    this.modelPage?.setTheme(theme);
+  }
+
+  invalidate(): void {
+    this.list = null;
+    this.modelPage?.invalidate();
   }
 
   handleInput(data: string): void {
-    if (matchesKey(data, "up") || data === "k") {
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
+    if (this.page === "model" && this.modelPage) {
+      this.modelPage.handleInput(data);
       return;
     }
-    if (matchesKey(data, "down") || data === "j") {
-      this.selectedIndex = Math.min(this.maxItems - 1, this.selectedIndex + 1);
+    const kb = this.options.keybindings;
+    if (kb.matches(data, "tui.select.cancel")) {
+      this.onClose?.();
       return;
     }
-    if (matchesKey(data, "left") || matchesKey(data, "right") || matchesKey(data, "tab")) {
-      this.section = this.section === "general" ? "events" : "general";
-      this.selectedIndex = 0;
+    // 短屏不渲染列表，禁止对不可见项确认、切换或保存。
+    if (this.isShortScreen()) return;
+    // 输入可能早于首次渲染：先按当前预算建立原生列表，避免导航/确认落到空对象。
+    this.ensureList(this.listRows(this.budget()));
+
+    if (kb.matches(data, "tui.select.up")) {
+      this.moveSelection(-1);
       return;
     }
-    if (data === " ") {
-      this.toggleCurrent();
+    if (kb.matches(data, "tui.select.down")) {
+      this.moveSelection(1);
       return;
     }
-    if (data === "m" && this.section === "general" && this.selectedIndex === 1) {
-      this.onOpenModelSelector?.();
+    if (kb.matches(data, "tui.select.pageUp")) {
+      this.moveSelection(-this.pageSize());
       return;
     }
-    if (matchesKey(data, "enter")) {
-      this.save();
+    if (kb.matches(data, "tui.select.pageDown")) {
+      this.moveSelection(this.pageSize());
       return;
     }
-    if (matchesKey(data, "escape")) this.onClose?.();
-  }
-
-  private get maxItems(): number {
-    return this.section === "general" ? 2 : EVENT_KEYS.length;
-  }
-
-  private toggleCurrent(): void {
-    if (this.section === "general") {
-      if (this.selectedIndex === 0) this.config.enabled = !this.config.enabled;
-      if (this.selectedIndex === 1) this.config.recap.enabled = !this.config.recap.enabled;
-      return;
+    if (kb.matches(data, "tui.select.confirm")) {
+      if (this.selectedId === "recap.model") {
+        this.openModelPicker();
+        return;
+      }
+      if (this.selectedId === "save") {
+        this.save();
+        return;
+      }
     }
-    const key = EVENT_KEYS[this.selectedIndex];
-    if (key) this.config.events[key].enabled = !this.config.events[key].enabled;
-  }
-
-  private save(): void {
-    saveConfig(this.config);
-    this.saved = true;
-    setTimeout(() => this.onClose?.(), 500);
-  }
-
-  private fg(color: string, text: string): string {
-    if (this.theme) return this.theme.fg(color as any, text);
-    const colors: Record<string, string> = {
-      accent: "\x1b[36m", success: "\x1b[32m", warning: "\x1b[33m", dim: "\x1b[2m", borderMuted: "\x1b[90m",
-    };
-    return `${colors[color] ?? ""}${text}\x1b[0m`;
-  }
-
-  private bold(text: string): string {
-    return this.theme ? this.theme.bold(text) : `\x1b[1m${text}\x1b[0m`;
-  }
-
-  private frameLine(content: string, width: number): string {
-    const truncated = truncateToWidth(content, width, "");
-    return `${this.fg("borderMuted", "│")}${truncated}${" ".repeat(Math.max(0, width - visibleWidth(truncated)))}${this.fg("borderMuted", "│")}`;
-  }
-
-  private ruleLine(width: number): string {
-    return this.fg("borderMuted", `├${"─".repeat(width)}┤`);
-  }
-
-  private borderLine(width: number, edge: "top" | "bottom"): string {
-    const left = edge === "top" ? "┌" : "└";
-    const right = edge === "top" ? "┐" : "┘";
-    return this.fg("borderMuted", `${left}${"─".repeat(width)}${right}`);
+    this.list?.handleInput(data);
   }
 
   render(width: number): string[] {
-    const innerWidth = boxInnerWidth(width);
-    const lines = [
-      this.borderLine(innerWidth, "top"),
-      this.frameLine(this.fg("accent", this.bold("通知设置")), innerWidth),
-      this.frameLine(this.fg("dim", "配置本地终端通知和事件"), innerWidth),
-      this.ruleLine(innerWidth),
-      this.frameLine(`  ${this.section === "general" ? this.fg("accent", this.bold("[常规]")) : this.fg("dim", "常规")}  ${this.section === "events" ? this.fg("accent", this.bold("[事件]")) : this.fg("dim", "事件")}`, innerWidth),
-      this.ruleLine(innerWidth),
-    ];
+    if (this.page === "model" && this.modelPage) return this.modelPage.render(width);
 
-    if (this.section === "general") this.renderGeneral(lines, innerWidth);
-    else this.renderEvents(lines, innerWidth);
-
-    if (this.saved) {
-      lines.push(this.ruleLine(innerWidth));
-      lines.push(this.frameLine(this.fg("success", "  设置已保存"), innerWidth));
+    const budget = this.budget();
+    if (budget <= 0) return [];
+    const short = budget < MIN_SETTINGS_ROWS;
+    const hint = this.hintText(panelContentWidth(width, this.outputPad()), short);
+    if (short) {
+      return renderShortPanel(this.options.theme, width, budget, {
+        title: "通知设置",
+        status: "窗口过小",
+        notice: shortScreenNotice(this.options.theme),
+        hint,
+      }, this.outputPad());
     }
-    lines.push(this.ruleLine(innerWidth));
-    const hint = this.section === "general"
-      ? "↑↓ 移动 · Space 切换 · M 选择模型 · Tab 切换 · Enter 保存 · Esc 返回"
-      : "↑↓ 移动 · Space 切换 · Tab 切换 · Enter 保存 · Esc 返回";
-    lines.push(this.frameLine(this.fg("dim", hint), innerWidth));
-    lines.push(this.borderLine(innerWidth, "bottom"));
-    return lines;
+
+    const view: PanelView = {
+      title: "通知设置",
+      status: this.isDirty() ? "草稿未保存" : "与磁盘一致",
+      body: [],
+      mode: "草稿模式：修改只保留在本面板，选择「保存设置」后写入磁盘；取消不落盘",
+      feedback: this.feedback,
+      hint,
+    };
+    const inner = panelContentWidth(width, this.outputPad());
+    this.ensureList(this.listRows(budget));
+    view.body = this.list ? trimTrailingBlank(this.list.render(inner)) : [];
+    return renderPanel(this.options.theme, width, view, this.outputPad());
   }
 
-  private renderGeneral(lines: string[], width: number): void {
-    const rows = [
-      { label: "启用通知", detail: this.config.enabled ? "已启用" : "已关闭", enabled: this.config.enabled },
-      { label: "启用 recap", detail: this.config.recap.model ? `模型：${this.config.recap.model}` : "未选择模型", enabled: this.config.recap.enabled },
-    ];
-    rows.forEach((row, index) => {
-      const selected = index === this.selectedIndex;
-      lines.push(this.frameLine(`${selected ? this.fg("accent", "▸") : " "} ${row.enabled ? this.fg("success", "●") : this.fg("dim", "○")} ${selected ? this.bold(row.label) : this.fg("dim", row.label)}  ${this.fg("dim", row.detail)}`, width));
-    });
-    lines.push(this.frameLine(this.fg("dim", "  终端协议：根据当前终端自动选择"), width));
+  private hintText(width: number, minimal: boolean): string {
+    const kb = this.options.keybindings;
+    const cancel = `${keyHint(kb, "tui.select.cancel")} 取消`;
+    if (minimal) return cancel;
+    const full = [
+      `${keyHint(kb, "tui.select.up")}/${keyHint(kb, "tui.select.down")} 移动`,
+      `${keyHint(kb, "tui.select.pageUp")}/${keyHint(kb, "tui.select.pageDown")} 翻页`,
+      `${keyHint(kb, "tui.select.confirm")} 修改`,
+      "Space 开关",
+      `${keyHint(kb, "tui.select.cancel")} 取消（不保存）`,
+    ].join(" · ");
+    return visibleWidthSafe(full) <= width ? full : cancel;
   }
 
-  private renderEvents(lines: string[], width: number): void {
-    EVENT_KEYS.forEach((key, index) => {
-      const selected = index === this.selectedIndex;
-      const enabled = this.config.events[key].enabled;
-      lines.push(this.frameLine(`${selected ? this.fg("accent", "▸") : " "} ${enabled ? this.fg("success", "●") : this.fg("dim", "○")} ${selected ? this.bold(EVENT_LABELS[key]) : this.fg("dim", EVENT_LABELS[key])}`, width));
-    });
+  private isDirty(): boolean {
+    return serialize(this.draft) !== this.baseline;
   }
+
+  private isShortScreen(): boolean {
+    return this.budget() < MIN_SETTINGS_ROWS;
+  }
+
+  private budget(): number {
+    return Math.max(0, this.options.getRows());
+  }
+
+  private outputPad(): number {
+    return this.options.outputPad === 0 ? 0 : 1;
+  }
+
+  private listRows(budget: number): number {
+    const chrome = panelChromeRows({ mode: "mode", feedback: this.feedback });
+    const available = Math.max(1, budget - chrome);
+    if (SETTING_ORDER.length <= available) return SETTING_ORDER.length;
+    return Math.max(1, available - 1);
+  }
+
+  private pageSize(): number {
+    return Math.max(1, this.listRows(this.budget()));
+  }
+
+  /** 上下移动沿用原生列表的 wrap 行为，翻页按实际可见行数并在边界停下。 */
+  private moveSelection(delta: number): void {
+    const index = SETTING_ORDER.indexOf(this.selectedId);
+    const count = SETTING_ORDER.length;
+    let target: number;
+    if (Math.abs(delta) === 1) {
+      target = (index + delta + count) % count;
+    } else {
+      target = Math.max(0, Math.min(count - 1, index + delta));
+    }
+    this.selectedId = SETTING_ORDER[target] ?? "enabled";
+    this.list?.selectItem(this.selectedId);
+  }
+
+  private ensureList(maxVisible: number): void {
+    if (this.list && this.listMaxVisible === maxVisible) return;
+    this.listMaxVisible = maxVisible;
+    const list = new SettingsList(
+      this.buildItems(),
+      maxVisible,
+      this.settingsTheme(),
+      (id, value) => this.applyChange(id, value),
+      () => this.onClose?.(),
+    );
+    list.selectItem(this.selectedId);
+    this.list = list;
+  }
+
+  private buildItems(): SettingItem[] {
+    return SETTING_ORDER.map((id) => ({
+      id,
+      label: this.labelFor(id),
+      currentValue: this.valueFor(id),
+      ...(id === "recap.model" || id === "save" ? {} : { values: TOGGLE_VALUES }),
+    }));
+  }
+
+  private labelFor(id: SettingId): string {
+    switch (id) {
+      case "enabled":
+        return "启用通知";
+      case "recap.enabled":
+        return "启用 recap";
+      case "recap.model":
+        return "Recap 模型";
+      case "save":
+        return "保存设置";
+      default:
+        return EVENT_LABELS[eventKey(id)];
+    }
+  }
+
+  private valueFor(id: SettingId): string {
+    switch (id) {
+      case "enabled":
+        return toggleText(this.draft.enabled);
+      case "recap.enabled":
+        return toggleText(this.draft.recap.enabled);
+      case "recap.model":
+        return this.draft.recap.model ?? "未选择";
+      case "save":
+        return "写入配置文件";
+      default:
+        return toggleText(this.draft.events[eventKey(id)].enabled);
+    }
+  }
+
+  private applyChange(id: string, value: string): void {
+    const enabled = value === TOGGLE_VALUES[0];
+    if (id === "enabled") this.draft.enabled = enabled;
+    else if (id === "recap.enabled") this.draft.recap.enabled = enabled;
+    else if (id.startsWith("event.")) this.draft.events[eventKey(id)].enabled = enabled;
+    else return;
+    this.feedback = null;
+    this.requestRender?.();
+  }
+
+  private openModelPicker(): void {
+    const page = new ModelPickerPage({
+      models: this.options.models,
+      keybindings: this.options.keybindings,
+      theme: this.options.theme,
+      getRows: this.options.getRows,
+      outputPad: this.options.outputPad,
+      title: "Recap 模型选择",
+      mode: "草稿模式：选定的模型只更新草稿，返回后选择「保存设置」才写入磁盘",
+      initialRef: this.draft.recap.model,
+    });
+    page.focused = this.focusState;
+    page.requestRender = () => this.requestRender?.();
+    page.onCancel = () => {
+      this.page = "list";
+      this.requestRender?.();
+    };
+    page.onConfirm = (ref) => {
+      this.draft.recap.model = ref;
+      this.feedback = { text: `草稿：模型改为 ${ref}（尚未写入磁盘）`, level: "warning" };
+      this.page = "list";
+      this.list?.updateValue("recap.model", ref);
+      this.requestRender?.();
+    };
+    this.modelPage = page;
+    this.page = "model";
+    this.requestRender?.();
+  }
+
+  private save(): void {
+    try {
+      saveConfig(this.draft);
+      this.baseline = serialize(this.draft);
+      this.feedback = { text: "设置已保存到 notify.json", level: "success" };
+    } catch (error) {
+      this.feedback = {
+        text: `保存失败：${describeError(error)}。草稿仍保留，可修正后重试，或按取消返回`,
+        level: "error",
+      };
+    }
+    this.requestRender?.();
+  }
+
+  private settingsTheme(): SettingsListTheme {
+    const theme = this.options.theme;
+    return {
+      label: (text, selected) => (selected ? theme.bold(theme.fg("accent", text)) : theme.fg("text", text)),
+      value: (text, selected) => (selected ? theme.fg("accent", text) : theme.fg("muted", text)),
+      description: (text) => theme.fg("dim", text),
+      cursor: theme.fg("accent", "▸ "),
+      // 原生列表自带提示行会与本面板提示重复，禁用搜索后此处留空。
+      hint: () => "",
+    };
+  }
+}
+
+function toggleText(enabled: boolean): string {
+  return enabled ? TOGGLE_VALUES[0]! : TOGGLE_VALUES[1]!;
+}
+
+function eventKey(id: string): NotifyEventKey {
+  const key = id.slice("event.".length);
+  return EVENT_KEYS.find((candidate) => candidate === key) ?? "agent_end";
+}
+
+function serialize(config: NotifyConfig): string {
+  return JSON.stringify(config);
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

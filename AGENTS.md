@@ -70,4 +70,5 @@ Dependabot 每周为 npm 依赖和 GitHub Actions 开升级 PR，不自动合并
 - `README.md` 是项目入口，面向使用者；`CONTRIBUTING.md` 面向贡献者；`SECURITY.md` 说明漏洞报告范围。
 - 本文件只记录项目协作、命令、发布和验证规范，不复制全局协作规范。
 - 同一事实只保留一个权威来源；改动文档后运行 `npm run check:docs`。
+- 扩展界面遵循 [TUI 规范](docs/reference/tui-guidelines.md)；正文只在该文档维护。
 - `.pi/` 只存放当前任务的临时产物，不进入版本库。

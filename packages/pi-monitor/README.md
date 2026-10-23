@@ -60,16 +60,20 @@ In the TUI, `list` and `show` without a batch argument open the panel; non-TUI m
 
 ## Panel and Collapsing
 
-The panel is a TUI-only presentation layer; it does not change the data visible to the model, nor does it modify the delivery protocol. Left and right padding follows Pi's `outputPad` setting; when the content width is under 68 columns, right-side notes are hidden and the shortcut hints are simplified.
+The panel is a TUI-only presentation layer; it does not change the data visible to the model, nor does it modify the delivery protocol. It opens as a standard overlay: 80% of the terminal width (target minimum 30 columns), at most 80% of the height, with one column of margin. Left and right padding follows Pi's `outputPad` setting, and every line is truncated to the width the compositor passes in.
+
+The body height is derived from the terminal height and the visible chrome, so the window follows the selection instead of drawing only the first page: the selected task is always visible, and tasks that move out of view stay reachable with the navigation keys. Selection is tracked by task id, so a reordered list keeps operating on the same task; when the selected task disappears, the panel falls back to a visible neighbor and cancels any pending stop confirmation for the old target. The bottom row shows the effective range (`7-16/25`), and when the terminal is too short the panel only renders the title plus a resize hint that still shows the cancel key, so the panel never traps the user.
+
+Navigation, confirmation, and cancellation are read from Pi's injected `keybindings` (`tui.select.*`), and the hint row always prints the actual bindings. `stop`, `resume`, and the scope toggle remain fixed business shortcuts.
 
 | Key | Behavior |
 |---|---|
-| `↑` `↓` | Move the selection |
-| `Enter` | Open details |
-| `Esc` | In details, return to the list; in the list, close the panel |
-| `s` | Stop checking; requires pressing twice to confirm |
+| `↑` `↓` (`tui.select.up` / `down`) | Move the selection; in details, scroll one line |
+| `PgUp` `PgDn` (`tui.select.pageUp` / `pageDown`) | Move or scroll by one visible page |
+| `Enter` (`tui.select.confirm`) | Open details |
+| `Esc` (`tui.select.cancel`) | In details, return to the list; in the list, close the panel |
+| `s` | Stop checking; requires pressing twice to confirm the same task id |
 | `r` | Resume a paused task or pending delivery results; tasks that are stopped, completed, or expired restart from the original definition (with a new id) |
-| `PgUp` `PgDn` | Scroll details |
 | `a` | Toggle the list scope: active only by default, toggled to include finished tasks |
 
 `stop` only cancels the local check, but a stop with no pending delivery results cannot be resumed, which is why the panel requires a second confirmation. When `resume` fails, the reason is shown at the bottom of the panel and the panel stays open. Restarting differs from resuming: restarting creates a new task from the original definition, with the id, event deduplication, cursor, and log all starting over, while the original task is kept as history. While the panel is open, automatic delivery is paused and resumes from the existing queue once it closes, so that model turns do not interrupt the modal UI; check scheduling is unaffected, and the panel redraws status once per second. Reload, tree navigation, or switching sessions closes the panel.

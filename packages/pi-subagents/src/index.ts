@@ -219,6 +219,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("subagents:settings", {
     description: "Configure subagent settings (concurrency, turn limits, retention, interrupt policy)",
     handler: async (_args, ctx) => {
+      if (!ctx.hasUI) return;
       await subagentsSettings.handle({ ui: ctx.ui });
     },
   });
@@ -234,6 +235,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("subagents:agents", {
     description: "List and enable or disable subagent types for the project or globally",
     handler: async (_args, ctx) => {
+      if (!ctx.hasUI) return;
       await subagentsAgents.handle({ ui: ctx.ui });
     },
   });
@@ -245,8 +247,15 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("subagents:sessions", {
     description: "View a subagent's session transcript (read-only)",
     handler: async (_args, ctx) => {
+      // The reader mounts a custom overlay and reads session files from disk;
+      // RPC/print have no such surface, so answer with text instead.
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("查看子代理会话仅支持 TUI 终端模式。", "warning");
+        return;
+      }
       await sessionNavigator.handle({
         ui: ctx.ui,
+        outputPad: pi.getSettings().outputPad ?? 1,
         agents: manager.listAgents(),
         registry,
         cwd: ctx.cwd,

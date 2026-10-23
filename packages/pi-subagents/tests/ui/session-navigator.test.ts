@@ -1,5 +1,13 @@
 import { getMarkdownTheme, initTheme } from "@earendil-works/pi-coding-agent";
-import type { Component, TUI } from "@earendil-works/pi-tui";
+import {
+  type Component,
+  type KeybindingsConfig,
+  type KeybindingsManager,
+  type TUI,
+  TUI_KEYBINDINGS,
+  KeybindingsManager as TuiKeybindingsManager,
+  visibleWidth,
+} from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { SessionMessage } from "#src/types";
@@ -21,10 +29,25 @@ function ansiTheme() {
   };
 }
 
-function makeOverlay(opts: { source?: TranscriptSource; done?: (r: undefined) => void; tui?: TUI } = {}) {
+/** Default keybindings: the overlay routes navigation through the injected registry. */
+function defaultKeys(overrides: KeybindingsConfig = {}): KeybindingsManager {
+  return new TuiKeybindingsManager(TUI_KEYBINDINGS, overrides);
+}
+
+function makeOverlay(
+  opts: {
+    source?: TranscriptSource;
+    done?: (r: undefined) => void;
+    tui?: TUI;
+    keybindings?: KeybindingsManager;
+    outputPad?: number;
+  } = {},
+) {
   return new TranscriptOverlay({
     tui: opts.tui ?? mockTui(),
+    outputPad: opts.outputPad,
     theme: ansiTheme(),
+    keybindings: opts.keybindings ?? defaultKeys(),
     source: opts.source ?? fakeSource(),
     done: opts.done ?? vi.fn(),
     cwd: "/test/cwd",
@@ -36,6 +59,35 @@ describe("TranscriptOverlay", () => {
   it("renders the transcript content", () => {
     const lines = makeOverlay().render(80);
     expect(lines.some((l) => l.includes("Hello world"))).toBe(true);
+  });
+
+  it("renders Chinese reader chrome separated by horizontal rules", () => {
+    const out = makeOverlay().render(80).join("\n");
+    expect(out).toContain("子代理会话");
+    expect(out).toContain("只读");
+    expect(out).toContain("─");
+  });
+
+  it("builds its hint line from the injected keybindings", () => {
+    const out = makeOverlay({ keybindings: defaultKeys() }).render(80).join("\n");
+    expect(out).toContain("↑/↓ 滚动");
+    expect(out).toContain("PgUp/PgDn 翻页");
+    expect(out).toContain("Esc/Ctrl+C/Q 退出");
+  });
+
+  it("reflects remapped bindings in the hint instead of hardcoded keys", () => {
+    const keys = defaultKeys({ "tui.select.cancel": "x", "tui.select.up": "y" });
+    const out = makeOverlay({ keybindings: keys }).render(80).join("\n");
+    expect(out).toContain("Y/↓ 滚动");
+    expect(out).toContain("X/Q 退出");
+    expect(out).not.toContain("Esc/Q 退出");
+  });
+
+  it("closes on the injected cancel binding", () => {
+    const done = vi.fn();
+    const overlay = makeOverlay({ done, keybindings: defaultKeys({ "tui.select.cancel": "x" }) });
+    overlay.handleInput("x");
+    expect(done).toHaveBeenCalledWith(undefined);
   });
 
   it("subscribes on construction and requests a render on change", () => {
@@ -57,6 +109,14 @@ describe("TranscriptOverlay", () => {
     const overlay = makeOverlay({ done });
     overlay.handleInput("\x1b");
     expect(done).toHaveBeenCalledWith(undefined);
+  });
+
+  it("closes only once — later cancel keys do nothing", () => {
+    const done = vi.fn();
+    const overlay = makeOverlay({ done });
+    overlay.handleInput("\x1b");
+    overlay.handleInput("\x1b");
+    expect(done).toHaveBeenCalledOnce();
   });
 
   it("unsubscribes on dispose", () => {
@@ -89,11 +149,122 @@ describe("TranscriptOverlay", () => {
     expect(out).toContain("◍");
   });
 
+  it("requests a render after a navigation key", () => {
+    const tui = mockTui();
+    const overlay = makeOverlay({ tui });
+    overlay.render(80);
+    vi.mocked(tui.requestRender).mockClear();
+    overlay.handleInput("\x1b[A");
+    expect(tui.requestRender).toHaveBeenCalledOnce();
+  });
+
+  it("pages with a remapped page key", () => {
+    const tui = mockTui();
+    const overlay = makeOverlay({
+      tui,
+      keybindings: defaultKeys({ "tui.select.pageUp": "ctrl+u" }),
+      source: fakeSource({
+        getMessages: () => Array.from({ length: 200 }, (_, i) => ({ role: "user", content: `line ${i}` })) as unknown as SessionMessage[],
+      }),
+    });
+    const bottom = overlay.render(80);
+    vi.mocked(tui.requestRender).mockClear();
+    overlay.handleInput("\x15"); // ctrl+u
+    expect(tui.requestRender).toHaveBeenCalledOnce();
+    expect(overlay.render(80)).not.toEqual(bottom);
+  });
+
+  it("keeps every rendered line inside the compositor width", () => {
+    for (const width of [20, 40, 80]) {
+      const lines = makeOverlay({ keybindings: defaultKeys({ "tui.select.cancel": "x" }) }).render(width);
+      expect(lines.length).toBeGreaterThan(0);
+      for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+    }
+  });
+
+  it("keeps cancel and its action visible at 30, 42 and 80 columns", () => {
+    for (const width of [30, 42, 80]) {
+      const lines = makeOverlay().render(width);
+      expect(lines.at(-1)).toContain("Esc/Ctrl+C/Q 退出");
+      expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+    }
+  });
+
+  it("applies only the outer outputPad and guards widths 0, 1 and 2", () => {
+    for (const outputPad of [0, 1]) {
+      const overlay = makeOverlay({ outputPad });
+      for (const width of [0, 1, 2, 3, 30, 80]) {
+        expect(overlay.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+      }
+      expect(overlay.render(80)[0].startsWith(`${" ".repeat(outputPad)}子代理会话`)).toBe(true);
+    }
+  });
+
+  it("uses the same padding-adjusted width before the first paint", () => {
+    const source = () => fakeSource({
+      getMessages: () => Array.from({ length: 30 }, (_, i) => ({ role: "user", content: `${i} ${"中文wrap".repeat(30)}` })) as unknown as SessionMessage[],
+    });
+    for (const outputPad of [0, 1]) {
+      const beforePaint = makeOverlay({ outputPad, tui: mockTui(40, 80), source: source() });
+      const afterPaint = makeOverlay({ outputPad, tui: mockTui(40, 80), source: source() });
+      afterPaint.render(72);
+      beforePaint.handleInput("\x1b[A");
+      afterPaint.handleInput("\x1b[A");
+      expect(beforePaint.render(72)).toEqual(afterPaint.render(72));
+    }
+  });
+
+  it("computes the viewport from the terminal height and shrinks after a resize", () => {
+    const tui = mockTui(40, 80);
+    const overlay = makeOverlay({ tui });
+    const tall = overlay.render(80);
+    (tui.terminal as { rows: number }).rows = 12;
+    const short = overlay.render(80);
+    expect(short.length).toBeLessThan(tall.length);
+    expect(short.length).toBeLessThanOrEqual(12);
+  });
+
+  it("keeps the exit hint on a terminal too short for the body", () => {
+    const done = vi.fn();
+    const overlay = makeOverlay({ tui: mockTui(5, 60), done });
+    const lines = overlay.render(60);
+    const out = lines.join("\n");
+    expect(lines.length).toBeLessThanOrEqual(3);
+    expect(out).toContain("终端高度不足");
+    expect(out).toContain("退出");
+    overlay.handleInput("\x1b");
+    expect(done).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the exit hint on a terminal with no room for a notice", () => {
+    const overlay = makeOverlay({ tui: mockTui(2, 60) });
+    const lines = overlay.render(60);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("退出");
+  });
+
+  it("keeps an exit affordance on a terminal too narrow for the chrome", () => {
+    for (const width of [1, 3, 5]) {
+      const lines = makeOverlay().render(width);
+      expect(lines).toHaveLength(1);
+      expect(lines[0].trim()).not.toBe("");
+      expect(visibleWidth(lines[0])).toBeLessThanOrEqual(width);
+    }
+    // Narrow widths keep a truncated prefix of the cancel hint, never a blank panel.
+    expect(makeOverlay().render(5)[0]).toContain("Es");
+  });
+
+  it("re-renders identically after invalidate()", () => {
+    const overlay = makeOverlay();
+    const before = overlay.render(80);
+    overlay.invalidate();
+    expect(overlay.render(80)).toEqual(before);
+  });
+
   describe("scroll bounds", () => {
-    // A 200-column terminal renders the overlay at 90% (180 columns, inner 176)
-    // while the full terminal would be inner 196. Text sized between the two
-    // wraps to two rows at the overlay width and one row at the terminal width,
-    // so a layout computed at the wrong width yields the wrong maxScroll.
+    // A 200-column terminal renders the overlay at 90% (180 columns, inner 178)
+    // while a layout computed at the terminal width would differ, so a scroll
+    // bound derived from the wrong width yields the wrong maxScroll.
     const OVERLAY_WIDTH = 180;
     const wrappingMessages = Array.from({ length: 30 }, (_, i) => ({
       role: "user",
@@ -120,6 +291,34 @@ describe("TranscriptOverlay", () => {
       overlay.handleInput("\x1b[A");
       overlay.handleInput("\x1b[B");
       expect(overlay.render(OVERLAY_WIDTH)).toEqual(atBottom);
+    });
+
+    it("keeps the shift+up/down page aliases working", () => {
+      const { overlay, atBottom } = overlayAtBottom();
+      overlay.handleInput("\x1b[a"); // shift+up
+      expect(overlay.render(OVERLAY_WIDTH)).not.toEqual(atBottom);
+      overlay.handleInput("\x1b[b"); // shift+down
+      expect(overlay.render(OVERLAY_WIDTH)).toEqual(atBottom);
+    });
+
+    it("does not follow new content while scrolled up, and resumes at the bottom", () => {
+      let messages = [...wrappingMessages];
+      const overlay = makeOverlay({
+        tui: mockTui(40, 200),
+        source: fakeSource({ getMessages: () => messages }),
+      });
+      const bottom = overlay.render(OVERLAY_WIDTH).join("\n");
+      overlay.handleInput("\x1b[A");
+      const paused = overlay.render(OVERLAY_WIDTH).join("\n");
+      expect(paused).toContain("已暂停跟随");
+
+      messages = [...messages, { role: "user", content: "late message" } as unknown as SessionMessage];
+      expect(overlay.render(OVERLAY_WIDTH).join("\n")).toEqual(paused);
+      expect(paused).not.toContain("late message");
+
+      overlay.handleInput("\x1b[6~"); // page down past the end
+      expect(overlay.render(OVERLAY_WIDTH).join("\n")).not.toEqual(paused);
+      expect(bottom).toBeDefined();
     });
   });
 
@@ -156,10 +355,10 @@ describe("SessionNavigatorHandler", () => {
     const factory = ui.custom.mock.calls[0][0] as (
       tui: TUI,
       theme: ReturnType<typeof ansiTheme>,
-      kb: unknown,
+      kb: KeybindingsManager,
       done: (r: undefined) => void,
     ) => Component;
-    const overlay = factory(mockTui(), ansiTheme(), undefined, vi.fn());
+    const overlay = factory(mockTui(40, 200), ansiTheme(), defaultKeys(), vi.fn());
     return overlay.render(width);
   }
 
@@ -171,7 +370,7 @@ describe("SessionNavigatorHandler", () => {
     const ui = makeUI();
     const notReady = makeNavigable({ isSessionReady: () => false, outputFile: undefined });
     await new SessionNavigatorHandler().handle({ ui, agents: [notReady], registry, cwd: "/test/cwd", readFile: noReadFile });
-    expect(ui.notify).toHaveBeenCalledWith("No subagent sessions to view.", "info");
+    expect(ui.notify).toHaveBeenCalledWith("暂无可查看的子代理会话。", "info");
     expect(ui.custom).not.toHaveBeenCalled();
   });
 
@@ -202,6 +401,27 @@ describe("SessionNavigatorHandler", () => {
     expect(record.getToolDefinition).not.toHaveBeenCalled();
     // Invoke the captured component factory and render to confirm it is sourced from the picked record.
     expect(renderCapturedOverlay(ui).some((l) => l.includes("picked agent reply"))).toBe(true);
+  });
+
+  it("passes outputPad through the handler to the native transcript shell", async () => {
+    for (const outputPad of [0, 1]) {
+      const ui = makeUI("Agent (Test task) · 2 tools · completed · 3.0s");
+      await new SessionNavigatorHandler().handle({ ui, outputPad, agents: [makeNavigable()], registry, cwd: "/test/cwd", readFile: noReadFile });
+      expect(renderCapturedOverlay(ui)[0].startsWith(`${" ".repeat(outputPad)}子代理会话`)).toBe(true);
+    }
+  });
+
+  it("opens the reader overlay at 90% width with an 85% height cap and margin", async () => {
+    const ui = makeUI("Agent (Test task) · 2 tools · completed · 3.0s");
+    await new SessionNavigatorHandler().handle({ ui, agents: [makeNavigable()], registry, cwd: "/test/cwd", readFile: noReadFile });
+    const options = ui.custom.mock.calls[0][1] as {
+      overlay: boolean;
+      overlayOptions: { width: string; maxHeight: string; margin: number };
+    };
+    expect(options.overlay).toBe(true);
+    expect(options.overlayOptions.width).toBe("90%");
+    expect(options.overlayOptions.maxHeight).toBe("85%");
+    expect(options.overlayOptions.margin).toBe(1);
   });
 
   it("opens an overlay sourced from the persisted file when a released agent is picked", async () => {
@@ -237,7 +457,7 @@ describe("SessionNavigatorHandler", () => {
 
     await new SessionNavigatorHandler().handle({ ui, agents: [released], registry, cwd: "/test/cwd", readFile });
 
-    expect(ui.notify).toHaveBeenCalledWith("Could not read the session transcript file.", "error");
+    expect(ui.notify).toHaveBeenCalledWith("无法读取该会话的对话记录文件。", "error");
     expect(ui.custom).not.toHaveBeenCalled();
   });
 });
