@@ -1,6 +1,6 @@
 {
   "name": "@yefengr/pi-subagents",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": {
@@ -19,6 +19,7 @@
     "docs/*.md",
     "docs/architecture",
     "docs/decisions",
+    "skills",
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
@@ -89,6 +90,9 @@
   "pi": {
     "extensions": [
       "./index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   }
 }

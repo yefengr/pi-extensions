@@ -12,6 +12,8 @@ Install from npm:
 pi install npm:@yefengr/pi-monitor
 ```
 
+The package also ships the package-bundled skill `wait-monitor`, which Pi discovers automatically after installation. It covers when to use a watch instead of a foreground command or a resident process, parameter choice, the check-command protocol, delivery handling, and shutdown.
+
 When developing inside this repository, you can load it temporarily from the repository root without modifying your personal package list:
 
 ```bash

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.2.0
+
+- Ship the package-bundled skill `orchestrate-subagents`, covering capability checks, delegation readiness gates, ownership and evidence handoff, review triggers, and lifecycle closeout.
+- Declare `pi.skills` and include `skills/` in the published files.
+
+## 0.1.1
+
 - 恢复为 @yefengr/pi-subagents 与 subagents: 前缀。
 
 - Rename `@yefengr/pi-subagents` to `@yefengr/pi-subagent`, command and event prefixes from `subagents:` to `subagent:`, and the service key to `@yefengr/pi-subagent:service`; keep `subagents.json` unchanged and provide no compatibility aliases.

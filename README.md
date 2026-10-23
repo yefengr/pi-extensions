@@ -35,16 +35,16 @@ Naming is layered: the capability root stays fixed, while each layer uses the wo
 3. Command: `<capability>`. Multiple commands use `<capability>:<action>`.
 4. Tool: `<capability>`, `<capability>_<action>`, or `<capability>_<object>`. Use the singular capability form when one call operates on a single element.
 5. Event, record, and log namespace: `<capability>:*`; log paths use the capability as the directory name. Cross-package service keys use `@yefengr/pi-<capability>:service`, because `Symbol.for` requires global uniqueness.
-6. Skill: `<action>-<capability>`.
+6. Skill: `<action>-<capability>`. The `pi-` package prefix never appears in a skill name.
 
 Every visible difference follows from these rules; there are no exceptions.
 
 | Capability | Package | Command | Tool | Event / record | Skill |
 |---|---|---|---|---|---|
 | notify | `pi-notify` | `notify:*` | `notify_user` | `notify:*` | — |
-| monitor | `pi-monitor` | `monitor` | `monitor` | `.pi/logs/monitor` | — |
+| monitor | `pi-monitor` | `monitor` | `monitor` | `.pi/logs/monitor` | `wait-monitor` |
 | task-efficiency | `pi-task-efficiency` | `task-efficiency` | `task_efficiency_*` | `task-efficiency:*` | `analyze-task-efficiency` |
-| subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | — |
+| subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | `orchestrate-subagents` |
 
 ## Development
 
