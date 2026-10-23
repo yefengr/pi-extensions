@@ -306,7 +306,7 @@ test("bounded previews retain full event evidence after delivery", async (t) => 
   t.after(() => h.runtime.dispose());
   const result = await h.call(start());
   const id = result.details.tasks[0].id;
-  await eventually(() => h.messages.length === 1);
+  await eventually(() => h.messages.length === 1 && h.runtime.record(h.ctx, id).pending.length === 0);
   const batchId = h.messages[0].message.details.deliveries[0].batchIds[0];
   assert.ok(h.messages[0].message.content.length < 32_000);
   assert.equal(h.runtime.record(h.ctx, id).pending.length, 0);
