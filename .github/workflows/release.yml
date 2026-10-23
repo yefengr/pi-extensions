@@ -114,6 +114,15 @@ jobs:
       PACKAGE_VERSION: ${{ matrix.version }}
       ARTIFACT_DIRECTORY: release-artifact
     steps:
+      - name: Check OIDC token availability
+        run: |
+          # npm only attempts the trusted-publishing exchange when these are set; otherwise it fails later as a bare ENEEDAUTH.
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::OIDC id token endpoint is unavailable. This job needs permissions: id-token: write, and the workflow must run from the default branch."
+            exit 1
+          fi
+          echo "OIDC id token endpoint is available."
+
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -134,6 +143,8 @@ jobs:
       - name: Submit tarball for npm 2FA approval
         env:
           TARBALL: ${{ steps.artifact.outputs.tarball }}
+          # oidc() swallows exchange failures at this level; verbose surfaces the registry's rejection reason.
+          NPM_CONFIG_LOGLEVEL: verbose
         run: npm stage publish "$TARBALL" --provenance --access public --ignore-scripts --registry=https://registry.npmjs.org
 
       - name: Explain pending approval

@@ -99,6 +99,8 @@ For unpublished candidates, the workflow runs the reusable CI checks on Node.js 
 
 To retry a single package, run the **Release** workflow manually on `main` and select its package name. Other branches are rejected, and already-public versions are skipped. If that version is still awaiting approval, another staging attempt may fail: check the existing Staged Packages entry and approve it, or reject the old entry before retrying. The workflow never automatically approves or replaces pending entries.
 
+If staging fails with `ENEEDAUTH`, the stage job first reports whether the OIDC endpoint was present. A missing endpoint means the job lost `id-token: write` or did not run from `main`; an `oidc` message in the verbose npm log means the registry rejected the exchange, so recheck the Trusted Publisher owner, repository, and workflow filename.
+
 This flow does not update installed Pi copies, deploy a server, or create GitHub tags or releases. If a package was published under a name that was later reverted, mark the old name with `npm deprecate` pointing to the current package.
 
 ## License
