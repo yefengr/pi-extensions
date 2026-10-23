@@ -5,12 +5,17 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import {
-  PACKAGES, createPlan, isPublished, readPreviousVersion, selectPackages,
+  PACKAGES, createPlan, isPublished, packageMatrix, readPreviousVersion, selectPackages,
   validateArtifact, validateNpmVersion, validatePackage, validateVersion,
 } from "./release.mjs";
 
 const BEFORE = "a".repeat(40);
 const push = { eventName: "push", ref: "refs/heads/main", before: BEFORE };
+
+test("package matrix is derived from the shared package list", () => {
+  assert.deepEqual(packageMatrix(), { include: PACKAGES.map(({ directory }) => ({ directory })) });
+});
+
 const candidate = { ...PACKAGES[0], version: "1.2.3" };
 const metadata = (directory) => ({ name: PACKAGES.find((entry) => entry.directory === directory).name, version: "1.2.3" });
 const dependencies = (overrides = {}) => ({

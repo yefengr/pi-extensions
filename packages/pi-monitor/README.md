@@ -28,7 +28,7 @@ To try a one-shot, notification-only watch in Pi:
 
 It runs immediately after registration with no confirmation prompt. You can delegate registering an existing check command to the agent in natural language; the model verifies the command, arguments, directory, interval, and deadline against the user's request. When a new script is needed, the file-change plan is still confirmed first; the extension will not generate scripts on its own.
 
-Long-term adoption in this repository follows the existing process; see the [deployment notes](../../docs/DEPLOYMENT.md). Loading from source does not mean it is installed on this machine; you must run setup and sync the source with the updated pix, then reload Pi.
+Long-term adoption in this repository follows the existing release process; see the [repository README](../../README.md#publishing). Loading from source does not mean it is installed on this machine; you must run setup and sync the source with the updated pix, then reload Pi.
 
 ## One-shot and Continuous Modes
 

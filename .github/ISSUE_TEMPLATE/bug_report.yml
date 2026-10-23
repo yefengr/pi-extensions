@@ -1,0 +1,51 @@
+name: Bug 报告 / Bug report
+description: 报告扩展的错误行为 / Report something that is not working
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全漏洞请不要在这里提交，按 [安全策略](https://github.com/yefengr/pi-extensions/blob/main/SECURITY.md) 私密报告。不要粘贴 token、私钥、会话内容或其他敏感数据。
+        Do not report security vulnerabilities here; follow the [security policy](https://github.com/yefengr/pi-extensions/blob/main/SECURITY.md) instead. Never paste tokens, private keys, session content, or other sensitive data.
+  - type: dropdown
+    id: component
+    attributes:
+      label: 受影响的包 / Affected package
+      options:
+        - "@yefengr/pi-notify"
+        - "@yefengr/pi-monitor"
+        - "@yefengr/pi-task-efficiency"
+        - "@yefengr/pi-subagents"
+        - 仓库配置或 CI / Repository or CI
+        - 不确定 / Not sure
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 版本与环境 / Versions and environment
+      description: 扩展版本、Pi 版本、Node 版本、终端或系统和复现用的模型 / Extension, Pi, Node, terminal or OS, and the model used
+      placeholder: "@yefengr/pi-monitor 0.1.1, Pi 1.4.0, Node 22.19.0, iTerm2, gpt-5"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 期望与实际结果 / Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图 / Logs or screenshots
+      description: 可选。提交前删除 token、密钥、会话内容和其他敏感数据 / Optional. Remove tokens, keys, session content, and other sensitive data first.

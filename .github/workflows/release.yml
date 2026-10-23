@@ -32,14 +32,14 @@ jobs:
       has-packages: ${{ steps.plan.outputs.has-packages }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "24.22.0"
+          node-version-file: .node-version
 
       - name: Plan unpublished version changes
         id: plan
@@ -69,13 +69,13 @@ jobs:
       PACKAGE_VERSION: ${{ matrix.version }}
       ARTIFACT_DIRECTORY: release-artifact
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "24.22.0"
+          node-version-file: .node-version
           cache: npm
 
       - run: npm ci
@@ -91,7 +91,7 @@ jobs:
       - name: Validate packed identity
         run: node scripts/release.mjs validate-artifact
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.directory }}-${{ matrix.version }}
           path: ${{ env.ARTIFACT_DIRECTORY }}/*.tgz
@@ -143,15 +143,15 @@ jobs:
             }
           '
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: "24.22.0"
+          node-version-file: .node-version
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-${{ matrix.directory }}-${{ matrix.version }}
           path: ${{ env.ARTIFACT_DIRECTORY }}
@@ -170,3 +170,30 @@ jobs:
       - name: Explain pending approval
         run: |
           printf '### %s@%s staged\n\nOpen npmjs.com **Staged Packages** and approve with 2FA. This workflow has not publicly released the package.\n' "$PACKAGE_NAME" "$PACKAGE_VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+  tag:
+    needs: [plan, stage]
+    if: needs.plan.outputs.has-packages == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Tag staged commit and summarize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_DIRECTORY: ${{ matrix.directory }}
+          PACKAGE_VERSION: ${{ matrix.version }}
+        run: node scripts/github-release.mjs tag "$PACKAGE_DIRECTORY" "$PACKAGE_VERSION" "$GITHUB_SHA"

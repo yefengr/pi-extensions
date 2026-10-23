@@ -1,47 +1,162 @@
+# CI：推送到 main、Pull Request 与手动触发时运行。
+# - changes：判断本次改动是否只有文档（*.md、LICENSE），纯文档改动跳过代码任务。
+# - docs：检查改动的空白错误和已跟踪文档的站内链接；所有改动都运行。
+# - checks：在 `.node-version` 运行时上运行根 verify（typecheck、lint、全部测试、文档链接、打包内容）。
+# - compat：在 Node 22.19（根 package.json engines 的下限）上运行同一套 verify，防止主版本升级掩盖最低版本回归。
+# - verify：汇总以上任务，是 main 分支保护要求的唯一检查；任一任务失败、取消或意外跳过都会使其失败。
+# release.yml 通过 workflow_call 复用本工作流，因此不要在这里依赖仅 push 事件存在的上下文。
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
 
-jobs:
-  verify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
+# 同一工作流与 ref 的新运行会取消旧运行；包含调用方工作流名，避免 Release 复用时与普通 CI 互相取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
-      - uses: actions/setup-node@v4
+jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+      base: ${{ steps.classify.outputs.base }}
+    steps:
+      - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify changed files
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          base="$PUSH_BEFORE"
+          if [ "$EVENT" = pull_request ]; then base="$PR_BASE"; fi
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "No comparable base commit; running every check."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          code=false
+          # --no-renames：改名的旧路径也参与判断，避免 src/a.ts → a.md 被误判为只改文档。
+          while IFS= read -r file; do
+            case "$file" in
+              # 随包发布的文档与技能是运行时资产，改动后仍需跑完整验证。
+              packages/*/skills/* | packages/*/docs/*) code=true ;;
+              *.md | LICENSE | *LICENSE) ;;
+              *) code=true ;;
+            esac
+          done < <(git diff --name-only --no-renames "$base" "$HEAD")
+          echo "Code changed: $code"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
+  docs:
+    name: docs
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: Check whitespace in the change
+        if: needs.changes.outputs.base != ''
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ github.sha }}
+        run: git diff --check "$BASE" "$HEAD"
+
+      - name: Check documentation links
+        run: npm run check:docs
+
+  checks:
+    name: checks
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check npm version for staged publishing
+        run: node scripts/release.mjs validate-npm
+
+      - name: Verify
+        run: npm run verify
+
+  compat:
+    name: compat
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          # 与根 package.json engines 的下限保持一致；升级下限时同步这里。
           node-version: "22.19.0"
           cache: npm
 
       - run: npm ci
 
-      - name: Typecheck
+      - name: Verify minimum supported Node
+        run: npm run verify
+
+  verify:
+    name: verify
+    if: always()
+    needs: [changes, docs, checks, compat]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every needed job
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+          CHANGES: ${{ needs.changes.result }}
+          DOCS: ${{ needs.docs.result }}
+          CHECKS: ${{ needs.checks.result }}
+          COMPAT: ${{ needs.compat.result }}
         run: |
-          npm run typecheck
-          npm run check -w @yefengr/pi-subagents
-
-      - name: Test release automation
-        run: npm run test:release
-
-      - name: Test notify
-        run: timeout 120 npm test -w @yefengr/pi-notify
-
-      - name: Test monitor
-        run: timeout 180 npm test -w @yefengr/pi-monitor
-
-      - name: Test task-efficiency
-        run: timeout 180 npm test -w @yefengr/pi-task-efficiency
-
-      - name: Test subagents
-        run: timeout 300 npm test -w @yefengr/pi-subagents
-
-      - name: Verify packed contents
-        run: npm pack --dry-run --workspaces
+          echo "changes=$CHANGES docs=$DOCS checks=$CHECKS compat=$COMPAT code=$CODE"
+          test "$CHANGES" = success
+          test "$DOCS" = success
+          if [ "$CODE" = true ]; then
+            test "$CHECKS" = success
+            test "$COMPAT" = success
+          else
+            echo "Documentation-only change: code jobs were skipped by design."
+          fi
