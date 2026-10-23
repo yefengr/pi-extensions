@@ -9,9 +9,9 @@ on:
         type: choice
         options:
           - "@yefengr/pi-notify"
-          - "@yefengr/pi-watch"
-          - "@yefengr/pi-subagent"
-          - "@yefengr/pi-efficiency"
+          - "@yefengr/pi-monitor"
+          - "@yefengr/pi-subagents"
+          - "@yefengr/pi-task-efficiency"
 
 permissions:
   contents: read

@@ -22,19 +22,19 @@ jobs:
       - name: Typecheck
         run: |
           npm run typecheck
-          npm run check -w @yefengr/pi-subagent
+          npm run check -w @yefengr/pi-subagents
 
       - name: Test notify
         run: timeout 120 npm test -w @yefengr/pi-notify
 
-      - name: Test watch
-        run: timeout 180 npm test -w @yefengr/pi-watch
+      - name: Test monitor
+        run: timeout 180 npm test -w @yefengr/pi-monitor
 
-      - name: Test efficiency
-        run: timeout 180 npm test -w @yefengr/pi-efficiency
+      - name: Test task-efficiency
+        run: timeout 180 npm test -w @yefengr/pi-task-efficiency
 
-      - name: Test subagent
-        run: timeout 300 npm test -w @yefengr/pi-subagent
+      - name: Test subagents
+        run: timeout 300 npm test -w @yefengr/pi-subagents
 
       - name: Verify packed contents
         run: npm pack --dry-run --workspaces
