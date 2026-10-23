@@ -1,49 +1,49 @@
 # Watch
 
-通用 Pi 后台命令监听扩展。由模型结合用户请求判断是否发起或恢复，不再弹出用户确认。注册后立即返回，后台按间隔执行检查命令；没有新事件时不调用模型，有新事件时仅通知或唤醒所属会话解释。扩展不理解业务，不提供 API、数据库或网络检索适配器。
+A general-purpose background command monitoring extension for Pi. The model decides whether to start or resume a watch based on the user's request; no user confirmation is prompted. Registration returns immediately, and the check command runs in the background on an interval. When there are no new events the model is not invoked; when new events arrive, the extension only notifies or wakes the owning session to explain them. The extension understands nothing about your business and provides no API, database, or network search adapters.
 
-## 加载与试用
+## Loading and Trying It Out
 
-要求 Node >=22.19、Pi >=1.2.0，执行器支持 macOS/Linux，不支持 Windows。
+Requires Node >=22.19 and Pi >=1.2.0. The executor supports macOS/Linux; Windows is not supported.
 
-从 npm 安装：
+Install from npm:
 
 ```bash
 pi install npm:@yefengr/pi-watch
 ```
 
-在本仓库内开发时，可以从仓库根临时加载，不修改个人 package 清单：
+When developing inside this repository, you can load it temporarily from the repository root without modifying your personal package list:
 
 ```bash
 pi --offline -ne -e ./packages/pi-watch/index.ts
 ```
 
-先在持久会话发送一条普通消息，再注册监听。Pi 的全新空白会话仅追加扩展状态时不会创建会话文件，因此 watch 拒绝尚未落盘的会话和 `--no-session`，不会为了落盘伪造用户消息。启动和恢复支持 TUI 或 RPC 模式，不要求客户端提供确认交互；print/JSON 模式不启动检查。
+Send a regular message in a persistent session first, then register a watch. A brand-new blank Pi session does not create a session file when it only appends extension state, so watch rejects sessions that have not been persisted and rejects `--no-session`; it will not fabricate user messages just to force a session file onto disk. Start and resume support TUI or RPC mode and do not require the client to provide a confirmation interaction; print/JSON mode does not start checks.
 
-在 Pi 中试用一次性纯通知：
+To try a one-shot, notification-only watch in Pi:
 
 ```text
-/watch start {"name":"演示","purpose":"验证一次性回传","mode":"once","delivery":"notify","command":"node","args":["-e","console.log(JSON.stringify({state:'ok',events:[{id:'demo-1',summary:'检查成功'}]}))"]}
+/watch start {"name":"demo","purpose":"verify one-shot delivery","mode":"once","delivery":"notify","command":"node","args":["-e","console.log(JSON.stringify({state:'ok',events:[{id:'demo-1',summary:'check succeeded'}]}))"]}
 ```
 
-注册后直接执行，不弹确认。可以用自然语言委托 Agent 注册已有检查命令，由模型根据用户请求核对命令、参数、目录、频率和截止时间；需要另写脚本时，仍先确认文件修改方案，扩展不会擅自生成脚本。
+It runs immediately after registration with no confirmation prompt. You can delegate registering an existing check command to the agent in natural language; the model verifies the command, arguments, directory, interval, and deadline against the user's request. When a new script is needed, the file-change plan is still confirmed first; the extension will not generate scripts on its own.
 
-本仓库的长期接入沿用现有流程，见 [部署说明](../../docs/DEPLOYMENT.md)。源码接入不代表本机已安装；需使用更新后的 pix 执行 setup、同步 source，再 reload Pi。
+Long-term adoption in this repository follows the existing process; see the [deployment notes](../../docs/DEPLOYMENT.md). Loading from source does not mean it is installed on this machine; you must run setup and sync the source with the updated pix, then reload Pi.
 
-## 一次性与持续模式
+## One-shot and Continuous Modes
 
-| `mode` | 收到新事件后 |
+| `mode` | After new events arrive |
 |---|---|
-| `once` | 保存首批有效新事件，停止检查，整批等待回传 |
-| `continuous` | 保存并回传新事件，继续检查 |
+| `once` | Saves the first batch of valid new events, stops checking, and waits to deliver the whole batch |
+| `continuous` | Saves and delivers new events, and keeps checking |
 
-模式必须明确。首次检查返回的事件均视为新事件；只关注启动后的变化时，由检查命令建立基线。一次性模式若只想等最终结果，检查命令在进度阶段应返回空事件列表。
+The mode must be explicit. Every event returned by the first check is treated as a new event; to watch only changes after start, the check command must establish a baseline. In one-shot mode, if you only want to wait for the final result, the check command should return an empty event list during progress stages.
 
-检查调度与回传独立：Agent 正在解释时检查仍继续；一次性检查停止后，尚未回传的结果不会被丢弃。`stop` 只取消检查及其组内子进程，不停止远端业务任务。
+Check scheduling and delivery are independent: checks keep running while the agent is explaining, and after a one-shot check stops, results that have not been delivered yet are not discarded. `stop` only cancels the check and the child processes in its group; it does not stop remote business tasks.
 
-## 工具与命令
+## Tools and Commands
 
-模型工具 `watch` 提供 `start`、`list`、`status`、`stop`、`resume`。`start` 和 `resume` 直接生效，不弹确认。工具仅向模型暴露，不供其他工具嵌套调用。
+The model tool `watch` provides `start`, `list`, `status`, `stop`, and `resume`. `start` and `resume` take effect immediately with no confirmation prompt. The tool is exposed only to the model and is not for nested calls by other tools.
 
 ```text
 /watch list
@@ -54,144 +54,144 @@ pi --offline -ne -e ./packages/pi-watch/index.ts
 /watch start <JSON>
 ```
 
-`list` 与不带批次参数的 `show` 在 TUI 下打开面板，RPC、print 等非 TUI 模式回落为多行文本；带 `batchId` 的 `show` 始终输出文本。`list` 默认只列出运行中、暂停或有待投递结果的任务，末尾汇总已结束数量；`list all` 才包含全部历史任务。
+In the TUI, `list` and `show` without a batch argument open the panel; non-TUI modes such as RPC and print fall back to multi-line text. `show` with a `batchId` always outputs text. By default `list` only lists tasks that are running, paused, or have results pending delivery, with a summary of the finished count at the end; only `list all` includes every historical task.
 
-## 面板与折叠
+## Panel and Collapsing
 
-面板是 TUI-only 的展示层，不改变模型可见的数据，也不修改交付协议。左右内边距遵循 Pi 的 `outputPad` 设置；内容宽度不足 68 列时隐藏右侧备注并简化快捷键提示。
+The panel is a TUI-only presentation layer; it does not change the data visible to the model, nor does it modify the delivery protocol. Left and right padding follows Pi's `outputPad` setting; when the content width is under 68 columns, right-side notes are hidden and the shortcut hints are simplified.
 
-| 键 | 行为 |
+| Key | Behavior |
 |---|---|
-| `↑` `↓` | 移动选择 |
-| `Enter` | 进入详情 |
-| `Esc` | 详情返回列表；列表关闭面板 |
-| `s` | 停止检查；需按两次确认 |
-| `r` | 恢复暂停任务或待投递结果；已停止、已完成或已到期的任务按原定义重新启动（新 id） |
-| `PgUp` `PgDn` | 详情滚动 |
-| `a` | 切换列表范围：默认仅活跃，切换后包含已结束任务 |
+| `↑` `↓` | Move the selection |
+| `Enter` | Open details |
+| `Esc` | In details, return to the list; in the list, close the panel |
+| `s` | Stop checking; requires pressing twice to confirm |
+| `r` | Resume a paused task or pending delivery results; tasks that are stopped, completed, or expired restart from the original definition (with a new id) |
+| `PgUp` `PgDn` | Scroll details |
+| `a` | Toggle the list scope: active only by default, toggled to include finished tasks |
 
-`stop` 只取消本地检查，但没有待回传结果的停止不能恢复，因此面板要求二次确认；`resume` 失败时原因显示在面板底部，面板保持打开。重新启动与恢复不同：重新启动按原定义新建任务，id、事件去重、游标和日志都重新开始，原任务保留为历史记录。面板打开期间暂停自动回传，关闭后按现有队列恢复，避免模态界面被模型轮次打断；检查调度不受影响，面板每秒重绘一次状态。reload、树导航或会话切换会使面板关闭。
+`stop` only cancels the local check, but a stop with no pending delivery results cannot be resumed, which is why the panel requires a second confirmation. When `resume` fails, the reason is shown at the bottom of the panel and the panel stays open. Restarting differs from resuming: restarting creates a new task from the original definition, with the id, event deduplication, cursor, and log all starting over, while the original task is kept as history. While the panel is open, automatic delivery is paused and resumes from the existing queue once it closes, so that model turns do not interrupt the modal UI; check scheduling is unaffected, and the panel redraws status once per second. Reload, tree navigation, or switching sessions closes the panel.
 
-工具调用默认折叠为两行：`watch <action>` 与一行结果统计；按 `ctrl+o` 展开参数与完整结果，点击结果区同样切换。折叠只影响 TUI 显示，工具 `text` 仍完整进入模型上下文。回传卡片不做折叠。
+Tool calls are collapsed to two lines by default: `watch <action>` and one line of result statistics. Press `ctrl+o` to expand arguments and the full result; clicking the result area toggles the same. Collapsing only affects TUI display; the tool `text` still enters the model context in full. Delivery cards are not collapsed.
 
-`start` 参数：
+`start` parameters:
 
-| 字段 | 规则 |
+| Field | Rule |
 |---|---|
-| `name`、`purpose` | 必填；任务名称、原始监听目的 |
-| `mode` | 必填；`once` 或 `continuous` |
-| `command`、`args` | 可执行文件及参数数组；不拼接 shell 字符串 |
-| `cwd` | 默认当前目录，相对路径解析为绝对路径 |
-| `explanation` | 可选；希望解释的内容，不是后续操作授权 |
-| `delivery` | `explain`（默认）或 `notify` |
-| `intervalSeconds` | 默认 30 秒，范围 1 秒至 24 小时 |
-| `timeoutSeconds` | 默认 10 秒，范围 0.1–300 秒 |
-| `maxDurationSeconds` | 可选，范围 1 秒至 365 天；省略表示不限时 |
-| `logLevel` | 可选；`off`、`info`（默认）或 `debug`，见“日志” |
-| `autoResume` | 可选布尔值；为 `true` 时，重启 Pi（`startup`）或切回会话（`resume`）后自动续跑。默认暂停并等待 `resume` |
+| `name`, `purpose` | Required; the task name and the original purpose of the watch |
+| `mode` | Required; `once` or `continuous` |
+| `command`, `args` | The executable and an array of arguments; shell strings are not concatenated |
+| `cwd` | Defaults to the current directory; relative paths are resolved to absolute paths |
+| `explanation` | Optional; what you want explained, not authorization for follow-up actions |
+| `delivery` | `explain` (default) or `notify` |
+| `intervalSeconds` | Defaults to 30 seconds; range is 1 second to 24 hours |
+| `timeoutSeconds` | Defaults to 10 seconds; range is 0.1–300 seconds |
+| `maxDurationSeconds` | Optional; range is 1 second to 365 days; omitted means no time limit |
+| `logLevel` | Optional; `off`, `info` (default), or `debug`, see "Logs" |
+| `autoResume` | Optional boolean; when `true`, the task continues automatically after restarting Pi (`startup`) or switching back to the session (`resume`). By default it pauses and waits for `resume` |
 
-截止时间从注册时计算，暂停、reload 和恢复都不会延长它。已到期的任务不再执行检查。
+The deadline is computed from registration time; pausing, reload, and resuming never extend it. Expired tasks no longer run checks.
 
-`status` 只读参数 `id` 查看最近状态；增加 `batchId` 查看该批事件目录，再加 `eventId` 读取单个完整事件。结果来自当前分支的原始状态快照，即使批次已回传仍可查询。命令 `show` 提供对应入口。状态输出包含 `logLevel` 与 `logPath`。
+`status` with only the `id` parameter shows the latest state; adding `batchId` shows that batch's event directory, and adding `eventId` reads a single full event. Results come from the raw state snapshot of the current branch, so they remain queryable even after a batch has been delivered. The `show` command provides the corresponding entry point. State output includes `logLevel` and `logPath`.
 
-## 检查协议
+## Check Protocol
 
-stdin 提供一行 JSON；不需要增量状态的命令可以不读取：
+stdin provides one line of JSON; commands that do not need incremental state may skip reading it:
 
 ```json
-{"monitorId":"监听 ID","cursor":null}
+{"monitorId":"watch ID","cursor":null}
 ```
 
-stdout 必须恰好是一个 JSON 对象，不要混入日志。没有新事件：
+stdout must be exactly one JSON object; do not mix in logs. No new events:
 
 ```json
 {"state":"ok","events":[]}
 ```
 
-有新事件：
+With new events:
 
 ```json
 {
   "state":"ok",
   "events":[
-    {"id":"job-123:completed","summary":"任务执行完成","data":{"result":"具体结果"}}
+    {"id":"job-123:completed","summary":"task finished","data":{"result":"the actual result"}}
   ],
-  "cursor":"检查命令维护的增量检查点"
+  "cursor":"incremental checkpoint maintained by the check command"
 }
 ```
 
-检查本身异常：
+The check itself failed:
 
 ```json
-{"state":"error","summary":"查询接口暂时不可用"}
+{"state":"error","summary":"query API is temporarily unavailable"}
 ```
 
-业务任务失败可以是正常事件；检查异常、非零退出、超时、无效 JSON 和输出超限属于检查失败，不算一次性任务完成。诊断日志写 stderr。
+A failing business task can be a normal event; a check error, non-zero exit, timeout, invalid JSON, and output over the limit are check failures and do not count as one-shot task completion. Diagnostic logs go to stderr.
 
-协议严格拒绝未知字段。stdout 与 stderr 合计最多 64 KiB；每次最多 32 个事件，事件 ID 最多 256 字符且不能包含控制字符，摘要最多 500 字符，单个 `data` 的 JSON 最多 8192 UTF-8 字节，游标最多 4096 字符。
+The protocol strictly rejects unknown fields. stdout and stderr total at most 64 KiB; at most 32 events per check, event IDs at most 256 characters and free of control characters, summaries at most 500 characters, JSON for a single `data` at most 8192 UTF-8 bytes, and cursors at most 4096 characters.
 
-### 去重与增量读取
+### Deduplication and Incremental Reads
 
-事件 ID 标识一次事件，不是业务对象。同一事件重复返回相同 ID，不重复回传；同一对象的新进展使用新 ID，不根据摘要文本去重。
+An event ID identifies one event, not a business object. The same event returned again with the same ID is not delivered twice; new progress on the same object uses a new ID, and deduplication is never based on summary text.
 
-`cursor` 是可选的不透明字符串。扩展把上次已接收的游标交给下一轮检查，只有事件、待回传队列和去重状态保存成功后才推进它。检查命令必须保证游标推进后不跨已推进检查点重放旧事件。
+`cursor` is an optional opaque string. The extension passes the last accepted cursor to the next check round and advances it only after the events, the pending delivery queue, and the deduplication state have all been saved successfully. The check command must ensure that, after the cursor advances, old events are not replayed across an already-advanced checkpoint.
 
-每任务保留最近最多 1000 个事件 ID。只有游标推进才允许淘汰旧 ID；无游标或游标不变而容量不足时，暂停且不接收本批，不悄悄遗忘后重复通知。每任务最多 16 批待回传结果，满时同样暂停并保留旧结果；处理完积压后，由模型判断是否调用 `resume` 恢复，未接收的本批由检查命令再次提供。
+Each task keeps at most the 1000 most recent event IDs. Old IDs may be evicted only when the cursor advances; with no cursor, or with an unchanged cursor and insufficient capacity, the task pauses and does not accept this batch, rather than silently forgetting events and notifying again. Each task holds at most 16 batches of pending results; when full it likewise pauses and keeps the existing results. After the backlog is handled, the model decides whether to call `resume`; the batch that was not accepted is offered again by the check command.
 
-## 回传与权限
+## Delivery and Permissions
 
-- `explain`：一次性结果空闲时立即交接；持续模式用 5 秒窗口合并。Agent 忙或有用户消息排队时，结果保留在本地待回传队列，空闲后重新核验所属上下文。使用 Pi 原生自定义消息和 `followUp`，不打断工作。
-- `notify`：仅写扩展条目、展示结果卡片和 UI 通知，不调用模型，也不自动加入后续模型上下文。显式调用 `status` 查询的数据当然会交给调用方。
+- `explain`: one-shot results are handed off immediately when idle; continuous mode merges them in a 5-second window. While the agent is busy or user messages are queued, results stay in the local pending delivery queue and the owning context is re-verified once idle. It uses Pi native custom messages and `followUp` and does not interrupt work.
+- `notify`: only writes an extension entry, shows the result card, and sends a UI notification; it does not invoke the model and is not automatically added to later model context. Data explicitly queried via `status` is of course handed to the caller.
 
-自动回传展示 Markdown 预览：任务标题、批次信息、事件摘要与 data 代码块；单条最多 32000 字符，按整批选择，未展示的批次继续等待，不因截断而确认丢弃。预览对 `summary`、事件 ID 和 data 做长度限制并压平空白，避免外部文本伪造结构；需要完整证据时，Agent 可只读查询指定批次和事件。
+Automatic delivery shows a Markdown preview: task title, batch information, event summaries, and data code blocks; a single message is limited to 32000 characters, batches are selected as a whole, and batches that are not shown keep waiting instead of being confirmed as dropped by truncation. The preview limits the length of `summary`, event IDs, and data and flattens whitespace so external text cannot forge structure; when full evidence is needed, the agent can query a specified batch and event read-only.
 
-自动解释轮通过 `tool_call` 阻断其他工具，仅允许 `watch list/status`，以及 `stop` 本次回执涉及的监听任务；`stop` 的 `id` 必须与回执中的 `taskId` 精确匹配。`stop` 只取消本地检查，不触碰远端状态，因此终态事件交付后可在同一轮收口，不必空转到截止时间。外部输出不是新指令，不能授权修复、重启、改文件或其他后续操作；用户的新请求进入新的正常执行轮。模型解释可能失败或需要多次模型请求，扩展不保证固定调用次数。
+The automatic explanation turn blocks other tools through `tool_call`, allowing only `watch list/status` and `stop` for the watch tasks involved in this receipt; the `stop` `id` must exactly match the `taskId` in the receipt. `stop` only cancels the local check and never touches remote state, so after a terminal event is delivered the turn can wrap up within the same round instead of idling until the deadline. External output is not a new instruction and cannot authorize fixes, restarts, file changes, or other follow-up actions; a new user request enters a new normal execution turn. Model explanation may fail or require multiple model requests; the extension does not guarantee a fixed number of calls.
 
-命令继承当前用户权限和现有环境，不是沙箱。常见明文凭据参数会被拒绝，但这不是完整秘密扫描；模型仍需结合用户请求核对命令的目的与权限，避免在参数、游标、结果和会话中放密码或 Token。使用既有环境变量、凭据文件或系统凭据管理器。检查脚本及其依赖应可信，不应后台派生常驻服务；恶意进程主动脱离进程组不属于执行器的隔离保证。
+Commands inherit the current user's permissions and existing environment; this is not a sandbox. Common plaintext credential arguments are rejected, but that is not a complete secret scan; the model must still check a command's purpose and permissions against the user's request and avoid putting passwords or tokens in arguments, cursors, results, or the session. Use existing environment variables, credential files, or the system credential manager. Check scripts and their dependencies must be trusted and should not spawn background daemons; a malicious process deliberately escaping its process group is outside the executor's isolation guarantees.
 
-## 日志
+## Logs
 
-任务默认把运行记录写入检查命令 `cwd` 所属项目的 `.pi/logs/watch/<任务名>-<id前8位>.jsonl`。“所属项目”指从 `cwd` 向上找到的最近 `.git` 所在目录（支持 worktree 的 `.git` 占位文件）；找不到时使用 `cwd` 本身。目录首次创建时写入 `.pi/logs/.gitignore`（内容 `*`），不修改项目根 `.gitignore`。
+By default a task writes its run records to `.pi/logs/watch/<task name>-<first 8 chars of id>.jsonl` in the project that the check command's `cwd` belongs to. "Owning project" means the nearest directory containing `.git` found by walking up from `cwd` (the `.git` placeholder file of a worktree is supported); if none is found, `cwd` itself is used. When the directory is first created, `.pi/logs/.gitignore` is written with the content `*`; the project root `.gitignore` is not modified.
 
-每行一个 JSON 事件，包含 `ts`、`taskId`、`name`、`sessionId` 和 `action`；`action` 为 `start`、`check`、`pause`、`resume`、`stop`、`complete`、`expire`、`deliver`、`deliver-error` 或 `receipt-error`。
+Each line is one JSON event containing `ts`, `taskId`, `name`, `sessionId`, and `action`; `action` is one of `start`, `check`, `pause`, `resume`, `stop`, `complete`, `expire`, `deliver`, `deliver-error`, or `receipt-error`.
 
-| 级别 | 记录内容 |
+| Level | What is recorded |
 |---|---|
-| `off` | 不写日志 |
-| `info`（默认） | 调度与结果元数据、`check` 的耗时与事件数量、新事件 `id` 与完整 `summary`、失败与暂停原因、投递批次 |
-| `debug` | 在 `info` 基础上追加命令与参数、`cursor` 长度、事件 `data` 的前 512 字符 |
+| `off` | No logs are written |
+| `info` (default) | Scheduling and result metadata, `check` duration and event count, new event `id` and full `summary`, failure and pause reasons, delivered batches |
+| `debug` | Everything in `info`, plus the command and arguments, `cursor` length, and the first 512 characters of event `data` |
 
-`debug` 需在 `start` 时显式指定，仅在排查时短期使用；它会把命令、参数和事件数据预览写入项目内日志，可能包含敏感业务信息，只在可信项目开启。日志不记录环境变量、完整 stdout 和 `purpose`；检查命令自己的诊断信息仍应写 stderr。
+`debug` must be set explicitly at `start` and should only be used briefly while troubleshooting; it writes commands, arguments, and event data previews into an in-project log that may contain sensitive business information, so enable it only on trusted projects. Logs do not record environment variables, full stdout, or `purpose`; the check command's own diagnostics should still go to stderr.
 
-单文件超过 1 MiB 时轮转为 `.1`，最多保留 `.1`–`.3`；1 秒间隔的任务约保留最近数小时。写入失败只禁用该任务日志并通过 UI 提醒一次，不影响检查调度、状态提交、回执核验与去重；日志不是状态或回执的真源。`stop`、`expire` 后不再写入，旧文件不自动清理：
+When a single file exceeds 1 MiB it is rotated to `.1`, keeping at most `.1`–`.3`; a task with a 1-second interval keeps roughly the last few hours. A write failure only disables that task's log and raises a one-time UI warning; it does not affect check scheduling, state commits, receipt verification, or deduplication. Logs are not the source of truth for state or receipts. Nothing is written after `stop` or `expire`, and old files are not cleaned up automatically:
 
 ```bash
 find .pi/logs/watch -name '*.jsonl*' -mtime +30 -delete
 ```
 
-## 调度与恢复
+## Scheduling and Recovery
 
-同一任务不重叠检查，共享并发上限为 2；当前会话最多 16 个运行、暂停或待回传任务，另缓存最近 32 个无积压的终态任务。`list` 只返回这些任务；更早的任务仍可按 ID 从当前分支历史中 `show/status` 查询，不删除会话证据。下一轮从本轮结束后计算，不补跑错过的轮次。检查错误指数退避，退避上限 5 分钟，但不缩短用户设置的更长间隔；连续 5 次失败后暂停并提醒。
+Checks for the same task never overlap, and the shared concurrency limit is 2. The current session holds at most 16 running, paused, or pending-delivery tasks, plus a cache of the 32 most recent terminal tasks with no backlog. `list` returns only these tasks; older tasks can still be queried by ID via `show/status` from the current branch history, without deleting session evidence. The next round is computed after the current round ends, and missed rounds are not caught up. Check errors use exponential backoff capped at 5 minutes, but a longer user-configured interval is not shortened; after 5 consecutive failures the task pauses and warns.
 
-任务和关键状态用 Pi `appendEntry()` 保存，只在实质变化时追加；空轮询和重复结果只更新内存中的最近检查时间。结果接收与投递确认分开。Pi 的 `message_end` 回调早于落盘，扩展在回调结束后核验会话文件中的完整回执，才清空对应批次；恢复时也核对持久回执，避免普通 reload 重复回传。异步发送未确认时保留结果并提醒，用 `/watch resume <id>` 重试。回执已落盘但 ACK 状态仍保存失败时，继续禁止重投，需先修复会话存储。不承诺跨崩溃模型严格一次。
+Tasks and key state are saved with Pi's `appendEntry()` and appended only on substantive changes; empty polls and duplicate results only update the in-memory last check time. Result acceptance and delivery acknowledgment are separate. Pi's `message_end` callback runs before the write to disk, so the extension verifies the full receipt in the session file after the callback ends before clearing the corresponding batch; on recovery it also checks persisted receipts to avoid duplicate delivery after an ordinary reload. When an async send is unacknowledged, results are kept and a warning is raised; retry with `/watch resume <id>`. If the receipt has been written but saving the ACK state still fails, re-delivery stays blocked and the session store must be repaired first. Strict exactly-once semantics across crashes are not promised.
 
-| 生命周期 | 行为 |
+| Lifecycle | Behavior |
 |---|---|
-| `/reload` | 清理旧资源，恢复原来运行中的任务 |
-| 重新进入会话 | 默认暂停，由模型判断是否调用 `resume` 恢复；`autoResume: true` 的任务在 `startup` 与 `resume` 时自动续跑 |
-| 树导航 | 先暂停旧分支，随后从目标分支重建；取消导航也保持暂停 |
-| fork/clone | 不继承其他 session 的执行权限；即使 `autoResume: true` 也不续跑 |
-| Pi 退出或切换会话 | 取消本地计时器与检查，晚到结果不写入其他会话 |
+| `/reload` | Cleans up old resources and resumes the tasks that were running before |
+| Re-entering the session | Paused by default; the model decides whether to call `resume`. Tasks with `autoResume: true` continue automatically on `startup` and `resume` |
+| Tree navigation | Pauses the old branch first, then rebuilds from the target branch; cancelling navigation also leaves it paused |
+| fork/clone | Does not inherit execution permission from another session; it does not continue even with `autoResume: true` |
+| Pi exit or session switch | Cancels local timers and checks; late results are not written into another session |
 
-对已停止检查但仍有待回传结果的任务，`resume` 可以只恢复投递，不重启检查。已完成、停止或到期且无待回传结果的任务不能恢复，应新建任务。
+For a task whose check has stopped but which still has pending results, `resume` can resume delivery only, without restarting the check. Tasks that are completed, stopped, or expired with no pending results cannot be resumed; create a new task instead.
 
-状态栏只显示当前会话摘要，例如 `监听 暂停 1 · 待回传 2 · 运行 3 · 重试 1`。运行数包含重试；待回传按任务数统计。暂停、待回传优先显示，零项隐藏，无活动或待回传任务时整项隐藏。
+The status bar only shows a summary of the current session, for example `watch paused 1 · pending 2 · running 3 · retrying 1`. The running count includes retries; pending delivery is counted by task. Paused and pending-delivery counts are shown with priority, zero items are hidden, and the whole item is hidden when there are no active or pending tasks.
 
-Pi 关闭后不继续监听，不提供 daemon。不要用多个 Pi 进程同时运行同一 session。原始会话 JSONL 不自动清理，仍随真实事件增长；限制单次输出与内存状态，不代表磁盘历史永久有界。
+Watching does not continue after Pi shuts down, and no daemon is provided. Do not run the same session from multiple Pi processes at the same time. Raw session JSONL files are not cleaned up automatically and still grow with real events; limiting per-check output and in-memory state does not mean disk history is permanently bounded.
 
-## 开发验证
+## Development Verification
 
-从仓库根运行：
+Run from the repository root:
 
 ```bash
 npm --prefix packages/pi-watch test
@@ -199,4 +199,4 @@ npm --prefix packages/pi-watch run typecheck
 cd runtimes/go && go test ./...
 ```
 
-类型检查需要满足 manifest 中的开发依赖和 Pi peer。集成测试复用已安装 Pi，可用 `PI_WATCH_PI_ROOT` 指向该 package 根目录；不会为测试自动安装或改写个人配置。RPC 通知 smoke 使用隔离 HOME、种子会话和纯通知模式，检查无确认启动/恢复、双模式、reload 和会话切换，不调用模型。解释轮 smoke 使用本地 HTTP 模型响应 fixture，验证原生消息落盘与写工具阻断，不访问外部模型、不产生真实模型费用。
+Type checking requires the dev dependencies in the manifest and the Pi peer. Integration tests reuse the installed Pi; `PI_WATCH_PI_ROOT` can point at that package root. They never install anything or rewrite personal configuration for tests. The RPC notification smoke uses an isolated HOME, a seeded session, and notification-only mode to check confirmation-free start/resume, both modes, reload, and session switching without invoking the model. The explanation-turn smoke uses a local HTTP model-response fixture to verify that native messages are written to disk and write tools are blocked; it does not access external models and incurs no real model costs.

@@ -1,32 +1,32 @@
 # pi-extensions
 
-[yefengr](https://github.com/yefengr) 维护的 [Pi](https://pi.dev) 扩展集合。每个包都是独立的 npm package，可单独安装。
+[Pi](https://pi.dev) extensions maintained by [yefengr](https://github.com/yefengr). Each package is an independent npm package and can be installed on its own.
 
-## 包
+## Packages
 
-| 包 | 说明 | 状态 |
+| Package | Description | Status |
 |---|---|---|
-| [`@yefengr/pi-notify`](./packages/pi-notify) | 通过终端原生 OSC 协议发送桌面通知，不依赖系统通知 Helper | 首发 |
-| [`@yefengr/pi-watch`](./packages/pi-watch) | 通用后台命令监听：一次性或持续事件，仅通知或自动解释 | 首发 |
-| [`@yefengr/pi-subagent`](./packages/pi-subagent) | 进程内子代理运行时：前后台执行、转向、恢复、会话查看与生命周期事件 | 已迁入，未发布 |
-| [`@yefengr/pi-efficiency`](./packages/pi-efficiency) | 任务效率复盘：范围确认、确定性指标与改进建议 | 已迁入，未发布 |
+| [`@yefengr/pi-notify`](./packages/pi-notify) | Desktop notifications through native terminal OSC protocols, with no system notification helper | Published |
+| [`@yefengr/pi-watch`](./packages/pi-watch) | Background command monitoring with one-shot or continuous checks, notification-only or explained delivery | Published |
+| [`@yefengr/pi-efficiency`](./packages/pi-efficiency) | Task efficiency review with scope confirmation, deterministic metrics, and actionable suggestions | Published |
+| [`@yefengr/pi-subagent`](./packages/pi-subagent) | In-process subagent runtime with background execution, steering, resume, and lifecycle events | Published |
 
-## 安装
+## Install
 
-需要 Pi 1.x 与 Node.js >= 22.19.0。
+Requires Pi 1.x and Node.js >= 22.19.0.
 
 ```bash
 pi install npm:@yefengr/pi-watch
 pi install npm:@yefengr/pi-notify
 ```
 
-安装后运行 `/reload` 或重启 Pi。卸载：
+Run `/reload` or restart Pi after installation. Remove a package with:
 
 ```bash
 pi remove npm:@yefengr/pi-watch
 ```
 
-## 开发
+## Development
 
 ```bash
 npm install
@@ -34,23 +34,23 @@ npm run typecheck
 npm test
 ```
 
-单包验证：
+Verify a single package:
 
 ```bash
 npm test -w @yefengr/pi-watch
 npm run typecheck -w @yefengr/pi-notify
 ```
 
-发布前检查 tarball 内容：
+Inspect the published tarball before releasing:
 
 ```bash
 npm pack --dry-run -w @yefengr/pi-notify
 ```
 
-## 发布
+## Publishing
 
-发布使用手动语义化版本与 GitHub Actions npm Trusted Publishing（OIDC），不保存长期 token。首个版本需要在具备 npm 登录的机器上发布，此后在 npm 包设置中绑定本仓库的 `release.yml` 工作流。
+Releases use manual semantic versioning. The first version of each package was published from a 2FA-authenticated terminal; later versions can use npm Trusted Publishing (GitHub Actions OIDC) through `.github/workflows/release.yml` once the publisher is configured on npmjs.com.
 
-## 许可证
+## License
 
-除 [`packages/pi-subagent`](./packages/pi-subagent) 保留上游 `tintinweb` 的 MIT 版权声明外，本仓库采用 MIT 许可证，见 [LICENSE](./LICENSE)。
+MIT, except [`packages/pi-subagent`](./packages/pi-subagent), which retains the upstream `tintinweb` MIT copyright notice. See [LICENSE](./LICENSE).

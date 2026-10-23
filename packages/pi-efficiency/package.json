@@ -1,7 +1,7 @@
 {
   "name": "@yefengr/pi-efficiency",
-  "version": "0.1.0",
-  "description": "Pi 任务效率复盘扩展：范围确认、确定性指标与改进建议",
+  "version": "0.1.1",
+  "description": "Task efficiency review for Pi with scope confirmation, deterministic metrics, and actionable suggestions",
   "type": "module",
   "license": "MIT",
   "author": "yefengr",

@@ -1,91 +1,91 @@
-# Pi 本地终端通知扩展
+# Pi Local Terminal Notify Extension
 
-这是 [yefengr](https://github.com/yefengr) 维护的 Pi 本地终端通知扩展。它只通过当前终端支持的通知协议发送桌面通知，不调用 `terminal-notifier`、`notify-send` 或其他系统通知 Helper。
+This is the Pi local terminal notification extension maintained by [yefengr](https://github.com/yefengr). It sends desktop notifications only through notification protocols supported by the current terminal, and does not call `terminal-notifier`, `notify-send`, or any other system notification helper.
 
-## 支持范围
+## Supported Scope
 
-当前只考虑宿主机直接运行的 Pi，不处理容器、SSH、tmux、screen 或 zellij。
+Only Pi running directly on the host is considered; containers, SSH, tmux, screen, and zellij are not handled.
 
-| 终端 | 协议 | 标题和正文 |
+| Terminal | Protocol | Title and body |
 |------|------|------------|
-| Ghostty | OSC 777 | 独立 |
-| WezTerm | OSC 777 | 独立 |
-| kitty | OSC 99 | 独立 |
-| iTerm2 | OSC 9 | 合并为一段文本 |
+| Ghostty | OSC 777 | Separate |
+| WezTerm | OSC 777 | Separate |
+| kitty | OSC 99 | Separate |
+| iTerm2 | OSC 9 | Merged into one text |
 
-Apple Terminal.app、Linux 默认终端以及其他未列入白名单的终端不会发送通知。扩展不会使用固定系统图标作为回退，也不会猜测未知终端是否兼容某个协议。
+Apple Terminal.app, the default Linux terminal, and other terminals that are not on the allowlist do not send notifications. The extension does not fall back to a fixed system icon, and it does not guess whether an unknown terminal is compatible with a given protocol.
 
-终端协议写入成功只表示序列已提交给终端，不代表系统已经展示通知。终端本身的桌面通知设置仍然有效。
+A successful terminal protocol write only means the sequence was submitted to the terminal; it does not mean the system has displayed the notification. The terminal's own desktop notification settings still apply.
 
-## 通知级别
+## Notification Levels
 
-扩展使用三个语义级别，并按级别设置默认显示时长：
+The extension uses three semantic levels and sets a default display duration for each level:
 
-| 级别 | 典型场景 | 默认时长 |
+| Level | Typical case | Default duration |
 |------|----------|----------|
-| `info` | 正常完成、会话结束、测试通知 | 5 秒 |
-| `warning` | 输出达到长度上限、需要关注但非致命的状态 | 8 秒 |
-| `error` | Agent、Provider 或工具异常 | 12 秒 |
+| `info` | Normal completion, session end, test notifications | 5 seconds |
+| `warning` | Output reaching the length limit, states that need attention but are not fatal | 8 seconds |
+| `error` | Agent, Provider, or tool errors | 12 seconds |
 
-kitty 的 OSC 99 会把级别编码为 `u=0/1/2`，并通过 `w=5000/8000/12000` 请求自动关闭；发送结果中的 `timeoutMs` 只在该协议实际携带时返回。Ghostty、WezTerm 和 iTerm2 使用的 OSC 777/9 不支持统一的级别和时长参数，因此仍服从终端及操作系统通知策略。扩展不发送常驻通知。
+kitty's OSC 99 encodes the level as `u=0/1/2` and requests auto-close through `w=5000/8000/12000`; `timeoutMs` in the send result is returned only when that protocol actually carries it. The OSC 777/9 used by Ghostty, WezTerm, and iTerm2 does not support unified level and duration parameters, so it still follows the notification policy of the terminal and the operating system. The extension does not send persistent notifications.
 
-## 命令
+## Commands
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/notify:settings` | 配置全局开关、Pi 生命周期事件和 recap |
-| `/notify:recap-model` | 从当前 Pi 可用模型中选择 recap 模型 |
-| `/notify:test` | 发送测试通知并显示 `sent`、`unsupported`、`disabled` 或 `failed` |
+| `/notify:settings` | Configure the global switch, Pi lifecycle events, and recap |
+| `/notify:recap-model` | Choose the recap model from the models currently available to Pi |
+| `/notify:test` | Send a test notification and display `sent`, `unsupported`, `disabled`, or `failed` |
 
-所有配置通过命令维护，不要求手动编辑 JSON。实际配置保存在：
+All configuration is maintained through commands; manual JSON editing is not required. The actual configuration is stored in:
 
 ```text
 ~/.pi/agent/config/notify.json
 ```
 
-## 生命周期事件
+## Lifecycle Events
 
-扩展只监听 Pi 原生生命周期，不依赖其他扩展发出的事件。
+The extension listens only to Pi's native lifecycle and does not depend on events emitted by other extensions.
 
-| 事件 | 默认状态 | 说明 |
+| Event | Default state | Description |
 |------|----------|------|
-| `agent_end` | 关闭 | 单次 Agent 运行结束，重试时可能重复触发 |
-| `agent_settled` | 开启 | Agent 在重试、压缩和排队续接全部结束后完成 |
-| `session_shutdown` | 关闭 | 会话结束 |
+| `agent_end` | Off | A single Agent run ended; it may fire repeatedly on retries |
+| `agent_settled` | On | The Agent finished after retries, compaction, and queued continuations all ended |
+| `session_shutdown` | Off | The session ended |
 
-`/notify:settings` 可以修改全局开关和上述事件开关。关闭全局开关后，生命周期事件会静默跳过，并返回 `disabled` 状态。
+`/notify:settings` can change the global switch and the switches for the events above. After the global switch is turned off, lifecycle events are skipped silently and return the `disabled` state.
 
-`agent_settled` 会根据最终运行结果使用不同级别：正常完成发送 `info`，输出达到长度上限发送 `warning`，其他异常发送 `error`。明确的手动中止不会发送桌面通知。
+`agent_settled` uses different levels depending on the final run result: normal completion sends `info`, output reaching the length limit sends `warning`, and other errors send `error`. An explicit manual abort does not send a desktop notification.
 
-## Agent 工具
+## Agent Tool
 
-工具名：`notify_user`
+Tool name: `notify_user`
 
 ```ts
 notify_user({
-  title: "构建失败",
-  message: "TypeScript 编译失败，请检查构建日志。",
+  title: "Build failed",
+  message: "TypeScript compilation failed. Check the build log.",
   level: "error"
 })
 ```
 
-工具接受 `message`、可选的 `title` 和可选的 `level`；`level` 可为 `info`、`warning` 或 `error`，默认 `info`。工具同步返回以下状态：
+The tool accepts `message`, an optional `title`, and an optional `level`; `level` may be `info`, `warning`, or `error`, and defaults to `info`. The tool synchronously returns the following states:
 
-- `sent`：通知序列已写入当前终端；
-- `unsupported`：当前终端不在支持白名单中，或标准输出不是 TTY；
-- `disabled`：全局通知已关闭；
-- `failed`：终端协议序列写入失败。
+- `sent`: the notification sequence has been written to the current terminal;
+- `unsupported`: the current terminal is not on the supported allowlist, or standard output is not a TTY;
+- `disabled`: global notifications are turned off;
+- `failed`: writing the terminal protocol sequence failed.
 
-只有 `sent` 会触发 `pi-notify:sent` 事件。返回详情和发送事件包含实际级别；仅 kitty OSC 99 包含已应用的 `timeoutMs`。
+Only `sent` triggers the `pi-notify:sent` event. The returned details and the sent event contain the actual level; only kitty OSC 99 contains the applied `timeoutMs`.
 
 ## Recap
 
-Recap 默认关闭，只对正常完成的 `agent_end` 和 `agent_settled` 通知生效。开启后，扩展会把最后一条 Assistant 回复发送给通过 `/notify:recap-model` 选择的模型，并生成一句通知摘要。异常终止直接使用实际错误，不调用 recap 模型；明确的手动中止不发送通知，也不调用 recap 模型。
+Recap is off by default and takes effect only for `agent_end` and `agent_settled` notifications of normal completions. Once enabled, the extension sends the last Assistant reply to the model chosen through `/notify:recap-model` and generates a one-sentence notification summary. Abnormal termination uses the actual error directly and does not call the recap model; an explicit manual abort sends no notification and does not call the recap model.
 
-在调用模型前会先检测当前终端是否支持通知协议。不支持时不会调用模型，也不会产生额外费用。模型请求失败、没有 API Key 或返回空内容时，会回退到确定性的生命周期消息。
+Before calling the model, the extension first checks whether the current terminal supports notification protocols. When it does not, no model is called and no extra cost is incurred. If the model request fails, no API key is available, or the returned content is empty, the extension falls back to a deterministic lifecycle message.
 
-开启 recap 会产生额外模型调用，并可能把 Assistant 回复中的内容发送给所选模型服务。请通过 `/notify:settings` 明确开启。
+Enabling recap causes extra model calls and may send content from Assistant replies to the selected model service. Enable it explicitly through `/notify:settings`.
 
-## 许可证
+## License
 
-MIT，详见 [LICENSE](./LICENSE)。
+MIT. See [LICENSE](./LICENSE) for details.

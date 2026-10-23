@@ -1,8 +1,8 @@
 # @yefengr/pi-subagent
 
-[yefengr](https://github.com/yefengr) 维护的 [Pi](https://pi.dev) 子代理 package。它提供进程内子代理运行时、前后台执行、转向、恢复、会话查看、生命周期事件和跨扩展类型接口。
+[yefengr](https://github.com/yefengr) maintains this [Pi](https://pi.dev) subagent package. It provides an in-process subagent runtime with foreground and background execution, steering, resume, session inspection, lifecycle events, and cross-extension type contracts.
 
-本地基线来自 `@gotgenes/pi-subagents@19.3.4`，之后由本仓库独立演进。准确来源、校验记录、导入边界和本地适配见 [`UPSTREAM.md`](./UPSTREAM.md)。原项目与 `tintinweb/pi-subagents` 的历史差异保留在 [Comparison with upstream](./docs/comparison-with-upstream.md)。
+The local baseline comes from `@gotgenes/pi-subagents@19.3.4` and has since evolved independently in this repository. See [`UPSTREAM.md`](./UPSTREAM.md) for the exact source, verification records, import boundaries, and local adaptations. Historical differences from the original project and `tintinweb/pi-subagents` are kept in [Comparison with upstream](./docs/comparison-with-upstream.md).
 
 ## Features
 
@@ -22,17 +22,17 @@
   Expandable to show full output
 - **Event bus** — lifecycle events (`subagent:created`, `started`, `completed`, `failed`, `resumed`, `steered`, `compacted`) emitted via `pi.events`, enabling other extensions to react to sub-agent activity
 
-## 加载与开发
+## Loading and development
 
-从 npm 安装：
+Install from npm:
 
 ```bash
 pi install npm:@yefengr/pi-subagent
 ```
 
-安装后运行 `/reload` 或重启 Pi。本包也可以作为依赖被其他扩展通过 `@yefengr/pi-subagent` 引用。
+Run `/reload` or restart Pi after installation. Other extensions can also depend on this package through `@yefengr/pi-subagent`.
 
-在 package 目录直接开发时可以运行：
+When developing directly in the package directory:
 
 ```bash
 npm ci
@@ -40,7 +40,7 @@ npm run check
 npm test
 ```
 
-也可显式加载入口进行开发 smoke：
+You can also load the entry explicitly for a development smoke test:
 
 ```bash
 pi -e ./index.ts
@@ -157,7 +157,7 @@ The message interrupts after the current tool execution.
 
 ### `/subagent:agents`
 
-List all built-in and custom agent types, including disabled types. Select an agent to inspect its definition and choose whether to enable or disable it in the current project or globally. `恢复继承` removes the selected layer's override: project settings then follow global settings, while global settings return to the default enabled state. Project settings take precedence over global settings. Global agent overrides are stored in the untracked `~/.pi/agent/subagents.local.json`; shared runtime settings remain in `~/.pi/agent/subagents.json`.
+List all built-in and custom agent types, including disabled types. Select an agent to inspect its definition and choose whether to enable or disable it in the current project or globally. The reset action removes the selected layer's override: project settings then follow global settings, while global settings return to the default enabled state. Project settings take precedence over global settings. Global agent overrides are stored in the untracked `~/.pi/agent/subagents.local.json`; shared runtime settings remain in `~/.pi/agent/subagents.json`.
 
 ### `/subagent:settings`
 

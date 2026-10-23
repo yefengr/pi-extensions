@@ -1,45 +1,45 @@
 # @yefengr/pi-efficiency
 
-[yefengr](https://github.com/yefengr) 维护的 [Pi](https://pi.dev) 任务效率复盘扩展。它在独立会话中复盘已经完成的任务，输出可核验的时间、Token、费用、工具和子代理指标，并把改进建议落到具体文件或规则上。
+A [Pi](https://pi.dev) task efficiency review extension maintained by [yefengr](https://github.com/yefengr). It reviews completed tasks in a separate session, reports verifiable time, token, cost, tool, and subagent metrics, and turns improvement suggestions into concrete files or rules.
 
-## 安装
+## Installation
 
-要求 Node >= 22.19、Pi 1.x。
+Requires Node >= 22.19 and Pi 1.x.
 
 ```bash
 pi install npm:@yefengr/pi-efficiency
 ```
 
-安装后运行 `/reload` 或重启 Pi。包内同时提供 package-bundled skill `analyze-efficiency`，Pi 会在安装后自动发现。
+After installation, run `/reload` or restart Pi. The package also ships the package-bundled skill `analyze-efficiency`, which Pi discovers automatically after installation.
 
-## 使用
+## Usage
 
 ```text
 /efficiency
 ```
 
-该命令新建独立复盘会话，不替换当前工作会话。复盘流程固定为四步：
+This command creates a separate review session and does not replace the current working session. The review flow always has four steps:
 
-1. `efficiency_read_scope_page` 读取最新的紧凑任务范围页。
-2. `efficiency_propose_scope` 提交完整候选范围，等待用户确认或修正。
-3. 边界仍有歧义时用 `efficiency_expand_scope` 读取有界详细片段。
-4. 用户确认后调用 `efficiency_analyze`，只依据返回的确定性报告撰写复盘。
+1. `efficiency_read_scope_page` reads the latest compact task scope page.
+2. `efficiency_propose_scope` submits the full candidate scope and waits for the user to confirm or correct it.
+3. If the boundary is still ambiguous, `efficiency_expand_scope` reads bounded detailed fragments.
+4. After the user confirms, call `efficiency_analyze` and write the review using only the returned deterministic report.
 
-模型不自行计算指标，也不把模型文字当作确认。范围未确认前不能生成报告。
+The model does not compute metrics on its own, and model text is never treated as confirmation. No report can be produced before the scope is confirmed.
 
-## 指标口径
+## Metric definitions
 
-- 时间为父会话、子代理与合并后的确定性区间，不使用模型估算。
-- `usage` 分别展示 `parent`、`children` 与 `combined`；`reasoning` 是 output 的子集，不重复累计。
-- 费用只汇总 Pi 会话 JSONL 中已持久化的 `usage.cost`，不维护价格表。
-- 复盘会话自身开销与源任务成本隔离，不混入源任务指标。
-- `coverage.complete` 只表示报告要求的核心字段完整，不包含可选字段。
+- Times are deterministic ranges for the parent session, the subagents, and the combined total; model estimates are not used.
+- `usage` reports `parent`, `children`, and `combined` separately; `reasoning` is a subset of output and is not counted twice.
+- Cost only aggregates the `usage.cost` already persisted in Pi session JSONL files; no price table is maintained.
+- The overhead of the review session itself is isolated from the source task cost and is never mixed into the source task metrics.
+- `coverage.complete` only means the core fields required by the report are complete; it does not cover optional fields.
 
-## 只读边界
+## Read-only boundaries
 
-扩展只读取 Pi 已持久化的会话记录，不修改项目、配置、memory、sample 或 observation。复盘产出的改进建议只作为建议，不直接写入文件。
+The extension only reads session records that Pi has already persisted. It does not modify the project, configuration, memory, samples, or observations. Improvement suggestions produced by the review are suggestions only and are never written to files directly.
 
-## 开发
+## Development
 
 ```bash
 npm ci
@@ -47,12 +47,12 @@ npm run typecheck
 npm test
 ```
 
-TUI smoke：
+TUI smoke:
 
 ```bash
 npm run test:tui-smoke
 ```
 
-## 许可
+## License
 
-MIT，见 [LICENSE](./LICENSE)。
+MIT, see [LICENSE](./LICENSE).

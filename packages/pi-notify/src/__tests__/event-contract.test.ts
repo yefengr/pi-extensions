@@ -28,6 +28,6 @@ describe("notification event contract", () => {
   });
 
   it("uses the current package version as the missing-metadata fallback", () => {
-    assert.equal(getPackageVersion("/path/that/does/not/exist"), "0.3.1");
+    assert.equal(getPackageVersion("/path/that/does/not/exist"), "0.3.2");
   });
 });

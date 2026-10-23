@@ -1,7 +1,7 @@
 {
   "name": "@yefengr/pi-watch",
-  "version": "0.1.0",
-  "description": "Pi 通用后台命令监听：一次性或持续事件，仅通知或自动解释",
+  "version": "0.1.1",
+  "description": "Background command monitoring for Pi with one-shot or continuous checks and notification-only or explained delivery",
   "type": "module",
   "language": "zh-CN",
   "license": "MIT",

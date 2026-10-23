@@ -1,6 +1,6 @@
 {
   "name": "@yefengr/pi-subagent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "exports": {
     ".": {
@@ -28,7 +28,7 @@
     "#src/*": "./src/*",
     "#test/*": "./test/*"
   },
-  "description": "Pi 子代理运行时：进程内子代理、前后台执行、转向、恢复与生命周期事件",
+  "description": "In-process subagent runtime for Pi with background execution, steering, resume, and lifecycle events",
   "license": "MIT",
   "author": "yefengr",
   "contributors": [
