@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 
 import type { ExtensionAPI, SessionEntry, SessionInfo } from "@earendil-works/pi-coding-agent";
+import { KeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 
 import {
   buildSessionProjection,
@@ -29,7 +30,7 @@ import {
   REVIEW_NAME_PREFIX,
   type TaskEfficiencyExtensionDependencies,
 } from "../src/extension/runtime.ts";
-import { parseScopeAction, scopeActionOptions } from "../src/extension/review-ui.ts";
+import { parseScopeAction, scopeActionOptions, type SearchableSessionSelector } from "../src/extension/review-ui.ts";
 import { assistant, entry, header, user, writeSession } from "./fixtures.ts";
 
 test("范围动作只接受当前中文标签，旧英文动作按取消处理", () => {
@@ -76,6 +77,7 @@ function runtime(
   const tools = new Map<string, RegisteredTool>();
   const handlers = new Map<string, (...args: any[]) => unknown>();
   const pi = {
+    getSettings: () => ({}),
     registerCommand(name: string, command: any) {
       commands.set(name, command);
     },
@@ -213,6 +215,40 @@ function sessionInfo(path: string, name?: string): SessionInfo {
     allMessagesText: "first message",
   };
 }
+
+test("命令读取 outputPad 设置并传入源选择器，未设置默认 1", async () => {
+  for (const outputPad of [undefined, 0, 1]) {
+    const { commands, pi } = runtime([], {
+      listSessions: async () => [sessionInfo("/source.jsonl")],
+      hasReviewMarker: async () => false,
+    });
+    let settingsReads = 0;
+    pi.getSettings = (() => { settingsReads += 1; return { outputPad }; }) as ExtensionAPI["getSettings"];
+    let rendered = false;
+    await commands.get("task-efficiency").handler("", {
+      mode: "tui",
+      hasUI: true,
+      cwd: "/workspace/current",
+      waitForIdle: async () => {},
+      ui: {
+        custom: async (factory: (...args: any[]) => SearchableSessionSelector) => new Promise((resolve) => {
+          const component = factory(
+            { terminal: { rows: 24 }, requestRender: () => {} },
+            { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+            new KeybindingsManager(TUI_KEYBINDINGS),
+            resolve,
+          );
+          assert.ok(component.render(80)[1]!.startsWith(`${" ".repeat(outputPad ?? 1)}选择`));
+          rendered = true;
+          component.handleInput("\x1b");
+        }),
+        notify: () => assert.fail("不应有错误通知"),
+      },
+    });
+    assert.equal(settingsReads, 1);
+    assert.equal(rendered, true);
+  }
+});
 
 test("命令仅列出当前 cwd 的非复盘 session，并创建隔离复盘 session", async (t) => {
   const sourcePath = await writeSession(t, [header(), user("u1", null, 0), assistant("a1", "u1", 1)]);

@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { RecapModelSelectorOverlay, type RecapModelOption } from "./tui/recap-model-selector.js";
+import { RecapModelSelectorOverlay } from "./tui/recap-model-selector.js";
+import type { ModelOption } from "./tui/model-picker.js";
 import { NotifySettingsOverlay } from "./tui/settings-overlay.js";
 import { loadConfig } from "./settings.js";
+import { overlayRowBudget } from "./ui.js";
 import { sendNativeNotification } from "./platforms/native.js";
 
 export const NOTIFY_COMMANDS = {
@@ -10,65 +12,45 @@ export const NOTIFY_COMMANDS = {
   TEST: "notify:test",
 } as const;
 
+/** 标准面板：80% 宽、最小 30 列、最高 80%、外边距 1。 */
+const OVERLAY_OPTIONS = {
+  overlay: true,
+  overlayOptions: {
+    width: "80%",
+    minWidth: 30,
+    maxHeight: "80%",
+    anchor: "center",
+    margin: 1,
+  },
+} as const;
+
 export function registerNotifyCommands(pi: ExtensionAPI): void {
   pi.registerCommand(NOTIFY_COMMANDS.SETTINGS, {
     description: "配置本地终端通知和事件",
     handler: async (_args, ctx) => {
-      if (!ctx.hasUI) {
-        ctx.ui.notify("通知设置需要交互式界面。", "warning");
-        return;
-      }
+      if (!supportsCustomTui(ctx, "通知设置面板只能在交互式 TUI 中打开。")) return;
       const models = getModelOptions(ctx);
-      ctx.ui.custom(
-        (tui, theme, _keybindings, done) => {
-          const overlay = new NotifySettingsOverlay();
-          overlay.setTheme(theme);
-          overlay.onClose = () => done(undefined);
-          overlay.requestRender = () => tui.requestRender();
-          overlay.onOpenModelSelector = () => {
-            ctx.ui.custom(
-              (innerTui, innerTheme, _innerKeybindings, innerDone) => {
-                const selector = new RecapModelSelectorOverlay(models);
-                selector.setTheme(innerTheme);
-                selector.onClose = () => {
-                  overlay.reload();
-                  innerDone(undefined);
-                };
-                selector.requestRender = () => innerTui.requestRender();
-                return {
-                  render: (width: number) => selector.render(width),
-                  invalidate: () => selector.invalidate(),
-                  handleInput: (data: string) => {
-                    selector.handleInput(data);
-                    innerTui.requestRender();
-                  },
-                };
-              },
-              { overlay: true, overlayOptions: { width: "60%", minWidth: 40, anchor: "center", margin: 4 } },
-            );
-          };
-          return {
-            render: (width: number) => overlay.render(width),
-            invalidate: () => overlay.invalidate(),
-            handleInput: (data: string) => {
-              overlay.handleInput(data);
-              tui.requestRender();
-            },
-          };
-        },
-        { overlay: true, overlayOptions: { width: "80%", minWidth: 60, anchor: "center", margin: 2 } },
-      );
+      const outputPad = pi.getSettings().outputPad ?? 1;
+      await ctx.ui.custom<void>((tui, theme, keybindings, done) => {
+        const overlay = new NotifySettingsOverlay({
+          models,
+          keybindings,
+          theme,
+          getRows: overlayRows(tui),
+          outputPad,
+        });
+        overlay.onClose = once(done);
+        overlay.requestRender = () => tui.requestRender();
+        return wrapFocusable(overlay, tui.requestRender);
+      }, OVERLAY_OPTIONS);
     },
   });
 
   pi.registerCommand(NOTIFY_COMMANDS.RECAP_MODEL, {
     description: "选择通知 recap 模型",
     handler: async (_args, ctx) => {
-      if (!ctx.hasUI) {
-        ctx.ui.notify("模型选择需要交互式界面。", "warning");
-        return;
-      }
-      openModelSelector(ctx, getModelOptions(ctx));
+      if (!supportsCustomTui(ctx, "模型选择面板只能在交互式 TUI 中打开。")) return;
+      await openRecapModelSelector(ctx, getModelOptions(ctx), pi.getSettings().outputPad ?? 1);
     },
   });
 
@@ -101,7 +83,13 @@ export function registerNotifyCommands(pi: ExtensionAPI): void {
   });
 }
 
-function getModelOptions(ctx: ExtensionContext): RecapModelOption[] {
+function supportsCustomTui(ctx: ExtensionContext, message: string): boolean {
+  if (ctx.mode === "tui" && ctx.hasUI) return true;
+  ctx.ui.notify(`${message}当前模式请直接编辑 notify.json。`, "warning");
+  return false;
+}
+
+function getModelOptions(ctx: ExtensionContext): ModelOption[] {
   return ctx.modelRegistry.getAvailable().map((model) => ({
     provider: model.provider,
     id: model.id,
@@ -109,22 +97,56 @@ function getModelOptions(ctx: ExtensionContext): RecapModelOption[] {
   }));
 }
 
-function openModelSelector(ctx: ExtensionContext, models: RecapModelOption[]): void {
-  ctx.ui.custom(
-    (tui, theme, _keybindings, done) => {
-      const selector = new RecapModelSelectorOverlay(models);
-      selector.setTheme(theme);
-      selector.onClose = () => done(undefined);
-      selector.requestRender = () => tui.requestRender();
-      return {
-        render: (width: number) => selector.render(width),
-        invalidate: () => selector.invalidate(),
-        handleInput: (data: string) => {
-          selector.handleInput(data);
-          tui.requestRender();
-        },
-      };
+/** 注入有效覆盖层预算：终端高度的 80% 与 rows-2 取小，而非终端全高。 */
+function overlayRows(tui: { terminal: { rows: number } }): () => number {
+  return () => overlayRowBudget(tui.terminal.rows);
+}
+
+/** done() 只允许结束一次，避免取消与确认路径重复收尾。 */
+function once<T>(done: (value?: T) => void): () => void {
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    done(undefined);
+  };
+}
+
+function wrapFocusable(
+  overlay: { render: (width: number) => string[]; invalidate: () => void; handleInput: (data: string) => void; focused: boolean },
+  requestRender: () => void,
+): {
+  render: (width: number) => string[];
+  invalidate: () => void;
+  handleInput: (data: string) => void;
+  focused: boolean;
+} {
+  return {
+    render: (width: number) => overlay.render(width),
+    invalidate: () => overlay.invalidate(),
+    handleInput: (data: string) => {
+      overlay.handleInput(data);
+      requestRender();
     },
-    { overlay: true, overlayOptions: { width: "60%", minWidth: 40, anchor: "center", margin: 4 } },
-  );
+    get focused() {
+      return overlay.focused;
+    },
+    set focused(value: boolean) {
+      overlay.focused = value;
+    },
+  };
+}
+
+async function openRecapModelSelector(ctx: ExtensionContext, models: ModelOption[], outputPad: number): Promise<void> {
+  await ctx.ui.custom<void>((tui, theme, keybindings, done) => {
+    const overlay = new RecapModelSelectorOverlay(models, {
+      keybindings,
+      theme,
+      getRows: overlayRows(tui),
+      outputPad,
+    });
+    overlay.onClose = once(done);
+    overlay.requestRender = () => tui.requestRender();
+    return wrapFocusable(overlay, tui.requestRender);
+  }, OVERLAY_OPTIONS);
 }

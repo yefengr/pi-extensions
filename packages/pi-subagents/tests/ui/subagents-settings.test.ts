@@ -67,21 +67,28 @@ describe("SubagentsSettingsHandler", () => {
     expect(handler).toBeInstanceOf(SubagentsSettingsHandler);
   });
 
-  it("shows the nine settings options with current values", async () => {
+  it("states the immediate-effect save model in the list title", async () => {
+    const { handler } = makeHandler();
+    const ui = makeMenuUI([undefined]);
+    await handler.handle({ ui });
+    expect(ui.select.mock.calls[0][0]).toBe("子代理设置（修改立即生效）");
+  });
+
+  it("shows the nine settings options in Chinese with current values", async () => {
     const { handler } = makeHandler();
     const ui = makeMenuUI([undefined]); // cancel immediately
     await handler.handle({ ui });
     const options = ui.select.mock.calls[0][1] as string[];
     expect(options).toEqual([
-      "Max concurrency (current: 4)",
-      "Max turns (current: 30)",
-      "Wrap-up turns (current: 2)",
-      "Max duration (current: 1800 s)",
-      "Max queue wait (current: 900 s)",
-      "Abort grace (current: 5 s)",
-      "Consumed-session retention (current: 10 min)",
-      "Unconsumed-session retention (current: 720 min)",
-      "Abort all subagents on ESC (current: on)",
+      "最大并发数（当前：4）",
+      "最大轮次（当前：30）",
+      "收尾轮次（当前：2）",
+      "最长运行时长（当前：1800 秒）",
+      "最长排队等待（当前：900 秒）",
+      "中止宽限期（当前：5 秒）",
+      "已消费会话保留（当前：10 分钟）",
+      "未消费会话保留（当前：720 分钟）",
+      "ESC 中止全部子代理（当前：开）",
     ]);
   });
 
@@ -92,7 +99,7 @@ describe("SubagentsSettingsHandler", () => {
     const ui = makeMenuUI([undefined]);
     await handler.handle({ ui });
     const options = ui.select.mock.calls[0][1] as string[];
-    expect(options[8]).toBe("Abort all subagents on ESC (current: off)");
+    expect(options[8]).toBe("ESC 中止全部子代理（当前：关）");
   });
 
   it("applies no change when the settings list is cancelled", async () => {
@@ -110,25 +117,33 @@ describe("SubagentsSettingsHandler", () => {
 describe("SubagentsSettingsHandler — max concurrency", () => {
   it("delegates a valid value to applyMaxConcurrent and notifies the returned toast", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max concurrency (current: 4)"]);
+    const ui = makeMenuUI(["最大并发数（当前：4）"]);
     ui.input = vi.fn().mockResolvedValue("8");
     await handler.handle({ ui });
     expect(settings.applyMaxConcurrent).toHaveBeenCalledWith(8);
     expect(ui.notify).toHaveBeenCalledWith("Max concurrency set to 8", "info");
   });
 
+  it("prompts in Chinese with the current value prefilled", async () => {
+    const { handler } = makeHandler();
+    const ui = makeMenuUI(["最大并发数（当前：4）"]);
+    ui.input = vi.fn().mockResolvedValue(undefined);
+    await handler.handle({ ui });
+    expect(ui.input).toHaveBeenCalledWith("最大并发数（同时运行的后台子代理上限）", "4");
+  });
+
   it("rejects a value below 1 with a warning and does not apply", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max concurrency (current: 4)"]);
+    const ui = makeMenuUI(["最大并发数（当前：4）"]);
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyMaxConcurrent).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入正整数。", "warning");
   });
 
   it("does not apply when the input is cancelled", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max concurrency (current: 4)"]);
+    const ui = makeMenuUI(["最大并发数（当前：4）"]);
     ui.input = vi.fn().mockResolvedValue(undefined);
     await handler.handle({ ui });
     expect(settings.applyMaxConcurrent).not.toHaveBeenCalled();
@@ -136,18 +151,18 @@ describe("SubagentsSettingsHandler — max concurrency", () => {
 
   it("rejects non-numeric input with a warning and does not apply", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max concurrency (current: 4)"]);
+    const ui = makeMenuUI(["最大并发数（当前：4）"]);
     ui.input = vi.fn().mockResolvedValue("abc");
     await handler.handle({ ui });
     expect(settings.applyMaxConcurrent).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入正整数。", "warning");
   });
 });
 
 describe("SubagentsSettingsHandler — max turns", () => {
   it("delegates a positive value to applyMaxTurns and notifies the returned toast", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max turns (current: 30)"]);
+    const ui = makeMenuUI(["最大轮次（当前：30）"]);
     ui.input = vi.fn().mockResolvedValue("20");
     await handler.handle({ ui });
     expect(settings.applyMaxTurns).toHaveBeenCalledWith(20);
@@ -156,18 +171,18 @@ describe("SubagentsSettingsHandler — max turns", () => {
 
   it("rejects 0 with a warning — 0 is not unlimited any more", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max turns (current: 30)"]);
+    const ui = makeMenuUI(["最大轮次（当前：30）"]);
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyMaxTurns).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入正整数。", "warning");
   });
 });
 
 describe("SubagentsSettingsHandler — wrap-up turns", () => {
   it("delegates a positive value to applyWrapUpTurns and notifies the returned toast", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Wrap-up turns (current: 2)"]);
+    const ui = makeMenuUI(["收尾轮次（当前：2）"]);
     ui.input = vi.fn().mockResolvedValue("3");
     await handler.handle({ ui });
     expect(settings.applyWrapUpTurns).toHaveBeenCalledWith(3);
@@ -176,7 +191,7 @@ describe("SubagentsSettingsHandler — wrap-up turns", () => {
 
   it("accepts 0 (stop at the hard limit)", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Wrap-up turns (current: 2)"]);
+    const ui = makeMenuUI(["收尾轮次（当前：2）"]);
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyWrapUpTurns).toHaveBeenCalledWith(0);
@@ -184,18 +199,18 @@ describe("SubagentsSettingsHandler — wrap-up turns", () => {
 
   it("rejects a negative value with a warning and does not apply", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Wrap-up turns (current: 2)"]);
+    const ui = makeMenuUI(["收尾轮次（当前：2）"]);
     ui.input = vi.fn().mockResolvedValue("-1");
     await handler.handle({ ui });
     expect(settings.applyWrapUpTurns).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be 0 or a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入 0 或正整数。", "warning");
   });
 });
 
 describe("SubagentsSettingsHandler — duration budgets in seconds", () => {
   it("delegates a valid max duration to applyMaxDurationSeconds", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max duration (current: 1800 s)"]);
+    const ui = makeMenuUI(["最长运行时长（当前：1800 秒）"]);
     ui.input = vi.fn().mockResolvedValue("3600");
     await handler.handle({ ui });
     expect(settings.applyMaxDurationSeconds).toHaveBeenCalledWith(3600);
@@ -204,16 +219,16 @@ describe("SubagentsSettingsHandler — duration budgets in seconds", () => {
 
   it("rejects a max duration below 1 with a warning", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max duration (current: 1800 s)"]);
+    const ui = makeMenuUI(["最长运行时长（当前：1800 秒）"]);
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyMaxDurationSeconds).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入正整数。", "warning");
   });
 
   it("delegates a valid queue wait to applyMaxQueueWaitSeconds", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Max queue wait (current: 900 s)"]);
+    const ui = makeMenuUI(["最长排队等待（当前：900 秒）"]);
     ui.input = vi.fn().mockResolvedValue("600");
     await handler.handle({ ui });
     expect(settings.applyMaxQueueWaitSeconds).toHaveBeenCalledWith(600);
@@ -222,7 +237,7 @@ describe("SubagentsSettingsHandler — duration budgets in seconds", () => {
 
   it("delegates a valid abort grace to applyAbortGraceSeconds", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Abort grace (current: 5 s)"]);
+    const ui = makeMenuUI(["中止宽限期（当前：5 秒）"]);
     ui.input = vi.fn().mockResolvedValue("10");
     await handler.handle({ ui });
     expect(settings.applyAbortGraceSeconds).toHaveBeenCalledWith(10);
@@ -231,18 +246,18 @@ describe("SubagentsSettingsHandler — duration budgets in seconds", () => {
 
   it("rejects an abort grace below 1 with a warning", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Abort grace (current: 5 s)"]);
+    const ui = makeMenuUI(["中止宽限期（当前：5 秒）"]);
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyAbortGraceSeconds).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入正整数。", "warning");
   });
 });
 
 describe("SubagentsSettingsHandler — retention windows", () => {
   it("delegates a valid consumed window to applyConsumedSessionRetentionMinutes", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Consumed-session retention (current: 10 min)"]);
+    const ui = makeMenuUI(["已消费会话保留（当前：10 分钟）"]);
     ui.input = vi.fn().mockResolvedValue("30");
     await handler.handle({ ui });
     expect(settings.applyConsumedSessionRetentionMinutes).toHaveBeenCalledWith(30);
@@ -251,7 +266,7 @@ describe("SubagentsSettingsHandler — retention windows", () => {
 
   it("delegates a valid unconsumed window to applyUnconsumedSessionRetentionMinutes", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Unconsumed-session retention (current: 720 min)"]);
+    const ui = makeMenuUI(["未消费会话保留（当前：720 分钟）"]);
     ui.input = vi.fn().mockResolvedValue("1440");
     await handler.handle({ ui });
     expect(settings.applyUnconsumedSessionRetentionMinutes).toHaveBeenCalledWith(1440);
@@ -260,18 +275,18 @@ describe("SubagentsSettingsHandler — retention windows", () => {
 
   it("rejects a consumed window below 1 with a warning and does not apply", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Consumed-session retention (current: 10 min)"]);
+    const ui = makeMenuUI(["已消费会话保留（当前：10 分钟）"]);
     ui.input = vi.fn().mockResolvedValue("0");
     await handler.handle({ ui });
     expect(settings.applyConsumedSessionRetentionMinutes).not.toHaveBeenCalled();
-    expect(ui.notify).toHaveBeenCalledWith("Must be a positive integer.", "warning");
+    expect(ui.notify).toHaveBeenCalledWith("请输入正整数。", "warning");
   });
 });
 
 describe("SubagentsSettingsHandler — abort all subagents on ESC", () => {
   it("flips the policy directly and notifies the returned toast", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Abort all subagents on ESC (current: on)"]);
+    const ui = makeMenuUI(["ESC 中止全部子代理（当前：开）"]);
     await handler.handle({ ui });
     expect(settings.toggleAbortAllOnInterrupt).toHaveBeenCalledOnce();
     expect(ui.notify).toHaveBeenCalledWith("Abort all subagents on ESC: off", "info");
@@ -279,7 +294,7 @@ describe("SubagentsSettingsHandler — abort all subagents on ESC", () => {
 
   it("never prompts for input — the toggle is a direct flip", async () => {
     const { handler } = makeHandler();
-    const ui = makeMenuUI(["Abort all subagents on ESC (current: on)"]);
+    const ui = makeMenuUI(["ESC 中止全部子代理（当前：开）"]);
     await handler.handle({ ui });
     expect(ui.input).not.toHaveBeenCalled();
   });
@@ -293,7 +308,7 @@ describe("SubagentsSettingsHandler — abort all subagents on ESC", () => {
 
   it("does not flip the policy when a numeric setting is chosen", async () => {
     const { handler, settings } = makeHandler();
-    const ui = makeMenuUI(["Wrap-up turns (current: 2)"]);
+    const ui = makeMenuUI(["收尾轮次（当前：2）"]);
     ui.input = vi.fn().mockResolvedValue("3");
     await handler.handle({ ui });
     expect(settings.toggleAbortAllOnInterrupt).not.toHaveBeenCalled();

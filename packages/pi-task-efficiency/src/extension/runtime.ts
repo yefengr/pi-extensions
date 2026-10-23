@@ -146,7 +146,7 @@ export function registerTaskEfficiencyExtension(
         ctx.ui.notify("/task-efficiency 不接受参数。", "error");
         return;
       }
-      await startReviewSession(ctx, dependencies);
+      await startReviewSession(ctx, dependencies, pi.getSettings().outputPad ?? 1);
     },
   });
 
@@ -215,7 +215,7 @@ export function registerTaskEfficiencyExtension(
   });
 }
 
-async function startReviewSession(ctx: ExtensionCommandContext, dependencies: RuntimeDependencies): Promise<void> {
+async function startReviewSession(ctx: ExtensionCommandContext, dependencies: RuntimeDependencies, outputPad: number): Promise<void> {
   const ui = ctx.ui;
   try {
     const sessions = await dependencies.listSessions(ctx.cwd);
@@ -225,7 +225,7 @@ async function startReviewSession(ctx: ExtensionCommandContext, dependencies: Ru
       return;
     }
 
-    const selectedPath = await selectSourceSession(ctx, sourceSessions);
+    const selectedPath = await selectSourceSession(ctx, sourceSessions, outputPad);
     if (selectedPath === undefined) return;
 
     let handoff: ReviewHandoff;

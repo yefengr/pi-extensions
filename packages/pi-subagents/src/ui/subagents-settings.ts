@@ -69,91 +69,95 @@ interface ToggleSettingDescriptor extends SettingDescriptorBase {
 
 type SettingDescriptor = NumericSettingDescriptor | ToggleSettingDescriptor;
 
+/**
+ * Settings list copy is intentionally Chinese and states the save model: every
+ * entry applies immediately, so cancel only closes the list.
+ */
 const SETTINGS: readonly SettingDescriptor[] = [
   {
     kind: "numeric",
-    label: "Max concurrency",
+    label: "最大并发数",
     currentDisplay: (settings) => settings.maxConcurrent,
-    inputTitle: "Max concurrent background agents",
+    inputTitle: "最大并发数（同时运行的后台子代理上限）",
     inputDefault: (settings) => String(settings.maxConcurrent),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyMaxConcurrent(n),
   },
   {
     kind: "numeric",
-    label: "Max turns",
+    label: "最大轮次",
     currentDisplay: (settings) => settings.maxTurns,
-    inputTitle: "Max turns before the hard stop",
+    inputTitle: "最大轮次（达到后强制停止）",
     inputDefault: (settings) => String(settings.maxTurns),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyMaxTurns(n),
   },
   {
     kind: "numeric",
-    label: "Wrap-up turns",
+    label: "收尾轮次",
     currentDisplay: (settings) => settings.wrapUpTurns,
-    inputTitle: "Turns reserved for wrap-up before the hard stop (0 = stop at the limit)",
+    inputTitle: "收尾轮次（强制停止前预留的轮次，0 表示到达上限即停止）",
     inputDefault: (settings) => String(settings.wrapUpTurns),
     minimum: 0,
-    validationMessage: "Must be 0 or a positive integer.",
+    validationMessage: "请输入 0 或正整数。",
     apply: (settings, n) => settings.applyWrapUpTurns(n),
   },
   {
     kind: "numeric",
-    label: "Max duration",
-    currentDisplay: (settings) => `${settings.maxDurationSeconds} s`,
-    inputTitle: "Max agent duration in seconds",
+    label: "最长运行时长",
+    currentDisplay: (settings) => `${settings.maxDurationSeconds} 秒`,
+    inputTitle: "最长运行时长（秒）",
     inputDefault: (settings) => String(settings.maxDurationSeconds),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyMaxDurationSeconds(n),
   },
   {
     kind: "numeric",
-    label: "Max queue wait",
-    currentDisplay: (settings) => `${settings.maxQueueWaitSeconds} s`,
-    inputTitle: "Max queue wait in seconds",
+    label: "最长排队等待",
+    currentDisplay: (settings) => `${settings.maxQueueWaitSeconds} 秒`,
+    inputTitle: "最长排队等待时长（秒）",
     inputDefault: (settings) => String(settings.maxQueueWaitSeconds),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyMaxQueueWaitSeconds(n),
   },
   {
     kind: "numeric",
-    label: "Abort grace",
-    currentDisplay: (settings) => `${settings.abortGraceSeconds} s`,
-    inputTitle: "Abort grace period in seconds",
+    label: "中止宽限期",
+    currentDisplay: (settings) => `${settings.abortGraceSeconds} 秒`,
+    inputTitle: "中止宽限期（秒）",
     inputDefault: (settings) => String(settings.abortGraceSeconds),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyAbortGraceSeconds(n),
   },
   {
     kind: "numeric",
-    label: "Consumed-session retention",
-    currentDisplay: (settings) => `${settings.consumedSessionRetentionMinutes} min`,
-    inputTitle: "Minutes to retain a consumed agent's session",
+    label: "已消费会话保留",
+    currentDisplay: (settings) => `${settings.consumedSessionRetentionMinutes} 分钟`,
+    inputTitle: "已消费会话的保留时长（分钟）",
     inputDefault: (settings) => String(settings.consumedSessionRetentionMinutes),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyConsumedSessionRetentionMinutes(n),
   },
   {
     kind: "numeric",
-    label: "Unconsumed-session retention",
-    currentDisplay: (settings) => `${settings.unconsumedSessionRetentionMinutes} min`,
-    inputTitle: "Minutes to retain an unconsumed agent's session (safety cap)",
+    label: "未消费会话保留",
+    currentDisplay: (settings) => `${settings.unconsumedSessionRetentionMinutes} 分钟`,
+    inputTitle: "未消费会话的保留时长（分钟，安全上限）",
     inputDefault: (settings) => String(settings.unconsumedSessionRetentionMinutes),
     minimum: 1,
-    validationMessage: "Must be a positive integer.",
+    validationMessage: "请输入正整数。",
     apply: (settings, n) => settings.applyUnconsumedSessionRetentionMinutes(n),
   },
   {
     kind: "toggle",
-    label: "Abort all subagents on ESC",
-    currentDisplay: (settings) => (settings.abortAllOnInterrupt ? "on" : "off"),
+    label: "ESC 中止全部子代理",
+    currentDisplay: (settings) => (settings.abortAllOnInterrupt ? "开" : "关"),
     toggle: (settings) => settings.toggleAbortAllOnInterrupt(),
   },
 ];
@@ -171,9 +175,9 @@ export class SubagentsSettingsHandler {
 
   async handle({ ui }: { ui: SubagentsSettingsUI }): Promise<void> {
     const options = SETTINGS.map(
-      (d) => `${d.label} (current: ${d.currentDisplay(this.settings)})`,
+      (d) => `${d.label}（当前：${d.currentDisplay(this.settings)}）`,
     );
-    const choice = await ui.select("Settings", options);
+    const choice = await ui.select("子代理设置（修改立即生效）", options);
     if (!choice) return;
 
     const descriptor = SETTINGS.find((d) => choice.startsWith(d.label));
