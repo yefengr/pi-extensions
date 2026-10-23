@@ -9,6 +9,13 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps
+    ignore:
+      # 类型定义会跟随对应 Node 大版本；项目最低支持 22.19，升级 major 会让类型脱离运行时下限。
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript 7 当前与 rollup-plugin-dts 的 build:types 不兼容，等生态适配后手动升级。
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       # 开发依赖的小版本与补丁合并为一个 PR，减少评审成本；运行时依赖与大版本仍单独提出。
       development-dependencies:
