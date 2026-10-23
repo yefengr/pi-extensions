@@ -1,0 +1,71 @@
+{
+  "name": "@yefengr/pi-efficiency",
+  "version": "0.1.0",
+  "description": "Pi 任务效率复盘扩展：范围确认、确定性指标与改进建议",
+  "type": "module",
+  "license": "MIT",
+  "author": "yefengr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yefengr/pi-extensions.git",
+    "directory": "packages/pi-efficiency"
+  },
+  "homepage": "https://github.com/yefengr/pi-extensions/tree/main/packages/pi-efficiency#readme",
+  "bugs": {
+    "url": "https://github.com/yefengr/pi-extensions/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "efficiency",
+    "review",
+    "telemetry",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": "./index.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:tui-smoke": "node --experimental-strip-types scripts/tui-smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run typecheck && npm test"
+  },
+  "files": [
+    "index.ts",
+    "core",
+    "extension",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "tsconfig.json"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-tui": "1.4.0",
+    "@types/node": "22.19.15",
+    "typebox": "1.3.27",
+    "typescript": "6.0.3"
+  }
+}

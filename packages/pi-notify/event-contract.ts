@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 /** Events emitted by the local notification extension. */
 export const NOTIFY_EVENTS = {
-  MODULE_READY: "agent-tools:notify:module-ready",
-  SENT: "agent-tools:notify:sent",
+  MODULE_READY: "pi-notify:module-ready",
+  SENT: "pi-notify:sent",
 } as const;
 
 export const PI_LIFECYCLE_EVENTS = {
@@ -14,7 +14,7 @@ export const PI_LIFECYCLE_EVENTS = {
   SESSION_SHUTDOWN: "session_shutdown",
 } as const;
 
-export const NOTIFY_MODULE_NAME = "agent-tools:notify" as const;
+export const NOTIFY_MODULE_NAME = "pi-notify" as const;
 export const NOTIFY_TOOL_NAME = "notify_user" as const;
 
 export function emitEvent(

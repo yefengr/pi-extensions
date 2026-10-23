@@ -7,23 +7,23 @@
 | 包 | 说明 | 状态 |
 |---|---|---|
 | [`@yefengr/pi-notify`](./packages/pi-notify) | 通过终端原生 OSC 协议发送桌面通知，不依赖系统通知 Helper | 首发 |
-| [`@yefengr/pi-monitor`](./packages/pi-monitor) | 通用后台命令监听：一次性或持续事件，仅通知或自动解释 | 首发 |
-| [`@yefengr/pi-subagents`](./packages/pi-subagents) | 进程内子代理运行时：前后台执行、转向、恢复、会话查看与生命周期事件 | 已迁入，未发布 |
-| [`@yefengr/pi-task-efficiency`](./packages/pi-task-efficiency) | 任务效率复盘：范围确认、确定性指标与改进建议 | 已迁入，未发布 |
+| [`@yefengr/pi-watch`](./packages/pi-watch) | 通用后台命令监听：一次性或持续事件，仅通知或自动解释 | 首发 |
+| [`@yefengr/pi-subagent`](./packages/pi-subagent) | 进程内子代理运行时：前后台执行、转向、恢复、会话查看与生命周期事件 | 已迁入，未发布 |
+| [`@yefengr/pi-efficiency`](./packages/pi-efficiency) | 任务效率复盘：范围确认、确定性指标与改进建议 | 已迁入，未发布 |
 
 ## 安装
 
 需要 Pi 1.x 与 Node.js >= 22.19.0。
 
 ```bash
-pi install npm:@yefengr/pi-monitor
+pi install npm:@yefengr/pi-watch
 pi install npm:@yefengr/pi-notify
 ```
 
 安装后运行 `/reload` 或重启 Pi。卸载：
 
 ```bash
-pi remove npm:@yefengr/pi-monitor
+pi remove npm:@yefengr/pi-watch
 ```
 
 ## 开发
@@ -37,7 +37,7 @@ npm test
 单包验证：
 
 ```bash
-npm test -w @yefengr/pi-monitor
+npm test -w @yefengr/pi-watch
 npm run typecheck -w @yefengr/pi-notify
 ```
 
@@ -53,4 +53,4 @@ npm pack --dry-run -w @yefengr/pi-notify
 
 ## 许可证
 
-除 [`packages/pi-subagents`](./packages/pi-subagents) 保留上游 `tintinweb` 的 MIT 版权声明外，本仓库采用 MIT 许可证，见 [LICENSE](./LICENSE)。
+除 [`packages/pi-subagent`](./packages/pi-subagent) 保留上游 `tintinweb` 的 MIT 版权声明外，本仓库采用 MIT 许可证，见 [LICENSE](./LICENSE)。

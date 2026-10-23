@@ -76,7 +76,7 @@ notify_user({
 - `disabled`：全局通知已关闭；
 - `failed`：终端协议序列写入失败。
 
-只有 `sent` 会触发 `agent-tools:notify:sent` 事件。返回详情和发送事件包含实际级别；仅 kitty OSC 99 包含已应用的 `timeoutMs`。
+只有 `sent` 会触发 `pi-notify:sent` 事件。返回详情和发送事件包含实际级别；仅 kitty OSC 99 包含已应用的 `timeoutMs`。
 
 ## Recap
 
