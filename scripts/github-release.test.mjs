@@ -130,7 +130,7 @@ test("all four packages use the shared allowlist", async () => {
   for (const entry of PACKAGES) {
     const candidate = { ...entry, version: VERSION };
     const tag = `${entry.directory}-v${VERSION}`;
-    const f = fixture({ run: async (command, args) => {
+    const f = fixture({ run: async (command) => {
       if (command === "git") return { stdout: JSON.stringify(candidate) };
       return { stdout: JSON.stringify([{ ref: `refs/tags/${tag}`, object: { type: "commit", sha: SHA } }]) };
     } });

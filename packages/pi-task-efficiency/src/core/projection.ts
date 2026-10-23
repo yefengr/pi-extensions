@@ -10,7 +10,8 @@ import {
   type SourceSnapshot,
   SourceSnapshotError,
 } from "./types.ts";
-import { projectLifecycleRecordV2 } from "./lifecycle-record.ts";
+import { projectLifecycleRecord } from "./lifecycle-record.ts";
+import { parseLifecycleRecord } from "./lifecycle.ts";
 
 type OmissionReason = ProjectionOmission["reason"];
 type JsonRecord = Record<string, unknown>;
@@ -198,8 +199,8 @@ function projectCustomEntry(
     omit(entry, base.omissionIds, omissions, "data", "not_projected", raw.data);
   }
   if (raw.customType === "subagents:record") {
-    const record = projectLifecycleRecordV2(raw.data);
-    if (record !== null) return freezeEntry({ ...base, kind: "subagent", record });
+    const { record } = parseLifecycleRecord(raw.data);
+    if (record !== null) return freezeEntry({ ...base, kind: "subagent", record: projectLifecycleRecord(record) });
   }
   return metadata(base, entry.type);
 }

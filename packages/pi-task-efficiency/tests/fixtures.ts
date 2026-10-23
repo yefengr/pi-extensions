@@ -119,6 +119,22 @@ export function lifecycleRecord(overrides: Record<string, unknown> = {}): Record
   };
 }
 
+export function lifecycleRecordV3(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const { status: _status, ...record } = lifecycleRecord();
+  return {
+    ...record,
+    recordVersion: 3,
+    phase: "terminal",
+    outcome: "completed",
+    invocationTurnCount: 1,
+    lifetimeTurnCount: 2,
+    maxTurns: 20,
+    wrapUpTurns: 2,
+    maxDurationSeconds: 120,
+    ...overrides,
+  };
+}
+
 export async function writeSession(
   t: TestContext,
   values: readonly unknown[],

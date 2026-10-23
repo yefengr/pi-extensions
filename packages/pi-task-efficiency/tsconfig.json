@@ -1,14 +1,4 @@
 {
-  "compilerOptions": {
-    "target": "ES2024",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "allowImportingTsExtensions": true,
-    "types": ["node"]
-  },
-  "include": ["index.ts", "core", "extension", "skills", "tests", "scripts"]
+  "extends": "../../tsconfig.base.json",
+  "include": ["index.ts", "src", "skills", "tests", "scripts"]
 }

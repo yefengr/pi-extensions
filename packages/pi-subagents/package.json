@@ -27,7 +27,7 @@
   ],
   "imports": {
     "#src/*": "./src/*",
-    "#test/*": "./test/*"
+    "#test/*": "./tests/*"
   },
   "description": "In-process subagent runtime for Pi with background execution, steering, resume, and lifecycle events",
   "license": "MIT",

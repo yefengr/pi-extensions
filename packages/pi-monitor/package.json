@@ -43,6 +43,7 @@
   "scripts": {
     "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "files": [
@@ -50,8 +51,7 @@
     "src",
     "skills",
     "README.md",
-    "LICENSE",
-    "tsconfig.json"
+    "LICENSE"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

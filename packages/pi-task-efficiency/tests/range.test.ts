@@ -6,8 +6,8 @@ import {
   loadSourceSnapshot,
   TaskRangeError,
   validateTaskRange,
-} from "../core/index.ts";
-import { entryTimestampMilliseconds } from "../core/range.ts";
+} from "../src/core/index.ts";
+import { entryTimestampMilliseconds } from "../src/core/range.ts";
 import { assistant, entry, header, message, timestamp, usage, user, writeSession } from "./fixtures.ts";
 
 function assistantWithReason(

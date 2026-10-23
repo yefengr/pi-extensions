@@ -5,7 +5,7 @@ import {
   classifyAgentEnd,
   updateAgentOutcome,
   type AgentOutcome,
-} from "../../agent-outcome.ts";
+} from "../src/agent-outcome.ts";
 
 describe("agent outcome notifications", () => {
   it("classifies a normal stop as completed", () => {

@@ -5,13 +5,14 @@ import {
   buildTaskEfficiencyReport,
   loadSourceSnapshot,
   validateTaskRange,
-} from "../core/index.ts";
+} from "../src/core/index.ts";
 import {
   assistant,
   BASE_TIME,
   entry,
   header,
   lifecycleRecord,
+  lifecycleRecordV3,
   message,
   usage,
   user,
@@ -108,6 +109,95 @@ function completeParent(childPath: string | undefined, record = lifecycle("spawn
     parentAssistant("done", "record", 4, "stop"),
   ];
 }
+
+test("v3 fresh/resume 仍按同一 sessionId 的独立窗口归属", async (t) => {
+  const childPath = await writeSession(t, [
+    header(3, { id: "child-session", parentSession: "parent" }),
+    user("cu1", null, 2), assistant("ca1", "cu1", 3),
+    user("cu2", "ca1", 6), assistant("ca2", "cu2", 7),
+  ]);
+  const fresh = lifecycleRecordV3(lifecycle("fresh", childPath, { recordVersion: 3 }));
+  const resume = lifecycleRecordV3(lifecycle("resume", childPath, {
+    recordVersion: 3, invocationKind: "resume", invocationIndex: 2,
+    startedAt: BASE_TIME + 6000, completedAt: BASE_TIME + 9000,
+    lifetimeUsage: { input: 20, output: 6, cacheWrite: 2, total: 28 },
+  }));
+  const report = await parentReport(t, [
+    header(3, { id: "parent" }), user("u1", null, 0),
+    parentAssistant("fresh-call", "u1", 1, "toolUse", [{ id: "fresh" }]),
+    parentResult("fresh-result", "fresh-call", 2, "fresh"),
+    entry("custom", "fresh-record", "fresh-result", 4, { customType: "subagents:record", data: fresh }),
+    parentAssistant("resume-call", "fresh-record", 6, "toolUse", [{ id: "resume", resume: "agent-1" }]),
+    parentResult("resume-result", "resume-call", 7, "resume"),
+    entry("custom", "resume-record", "resume-result", 9, { customType: "subagents:record", data: resume }),
+    parentAssistant("done", "resume-record", 10, "stop"),
+  ], "u1", "done", [childPath]);
+  assert.ok(report.subagents);
+  assert.equal(report.subagents.sessions, 1);
+  assert.equal(report.subagents.fresh, 1);
+  assert.equal(report.subagents.resumes, 1);
+  assert.equal(report.subagents.usage.tokens.input, 20);
+  assert.equal(report.subagents.coverage.complete, true);
+  assert.deepEqual(report.subagents.issues, []);
+});
+
+test("v3 service 和三种 no-session 终态不虚构或读取 child", async (t) => {
+  for (const outcome of ["error", "cancelled", "queue_timeout"]) {
+    const data = lifecycleRecordV3({
+      outcome, sessionState: "not-created", sessionId: undefined, outputFile: undefined,
+      invocationSource: "service", toolCallId: undefined,
+      invocationToolUses: 0, lifetimeToolUses: 0, invocationTurnCount: 0, lifetimeTurnCount: 0,
+      invocationUsage: { input: 0, output: 0, cacheWrite: 0, total: 0 },
+      lifetimeUsage: { input: 0, output: 0, cacheWrite: 0, total: 0 },
+    });
+    const parent = await loadSourceSnapshot(await writeSession(t, [
+      header(3, { id: "parent" }), user("u1", null, 0),
+      entry("custom", "record", "u1", 2, { customType: "subagents:record", data }),
+      parentAssistant("done", "record", 4, "stop"),
+    ]));
+    const report = await buildTaskEfficiencyReport(parent, validateTaskRange(parent, { startEntryId: "u1", endEntryId: "done" }), {
+      readChildDirectory: async () => { assert.fail("no-session must not discover children"); },
+      loadChildSnapshot: async () => { assert.fail("no-session must not load children"); },
+    });
+    assert.ok(report.subagents);
+    assert.equal(report.subagents.invocations, 1, outcome);
+    assert.equal(report.subagents.sessions, 0, outcome);
+    assert.equal(report.subagents.notCreated, 1, outcome);
+    assert.equal(report.subagents.coverage.complete, true, outcome);
+  }
+});
+
+test("v3 六终态 service 正常归属，非法和未来记录沿用缺失 coverage 机制", async (t) => {
+  const childPath = await completeChild(t);
+  for (const outcome of ["completed", "turn_limit", "timeout", "queue_timeout", "cancelled", "error"]) {
+    const data = lifecycleRecordV3(lifecycle("spawn", childPath, {
+      recordVersion: 3, outcome, invocationSource: "service", toolCallId: undefined,
+    }));
+    const report = await parentReport(t, [
+      header(3, { id: "parent" }), user("u1", null, 0),
+      entry("custom", "record", "u1", 3, { customType: "subagents:record", data }),
+      parentAssistant("done", "record", 4, "stop"),
+    ], "u1", "done", [childPath]);
+    assert.equal(report.subagents?.coverage.complete, true, outcome);
+    assert.equal(report.subagents?.usage.tokens.input, 10, outcome);
+  }
+  for (const [overrides, code] of [
+    [{ phase: "running" }, "invalid_lifecycle_record"],
+    [{ recordVersion: undefined }, "invalid_lifecycle_record"],
+    [{ recordVersion: null }, "invalid_lifecycle_record"],
+    [{ recordVersion: "3" }, "invalid_lifecycle_record"],
+    [{ recordVersion: 4 }, "unsupported_lifecycle_version"],
+  ] as const) {
+    const data = lifecycleRecordV3({ ...lifecycle("spawn", childPath, { recordVersion: 3 }), ...overrides });
+    const report = await parentReport(t, completeParent(childPath, data), "u1", "done", [childPath]);
+    assert.ok(report.subagents?.issues.some((issue) => issue.code === code), code);
+    const oppositeCode = code === "invalid_lifecycle_record" ? "unsupported_lifecycle_version" : "invalid_lifecycle_record";
+    assert.equal(report.subagents?.issues.some((issue) => issue.code === oppositeCode), false);
+    assert.ok(report.subagents?.issues.some((issue) => issue.code === "missing_lifecycle_record"), code);
+    assert.equal(report.subagents?.coverage.complete, false);
+    assert.equal(report.usage.combined.tokens.input, null);
+  }
+});
 
 test("完整直接 child 仅按 sessionId 聚合，且不泄露 outputFile", async (t) => {
   const childPath = await completeChild(t);

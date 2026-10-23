@@ -43,16 +43,15 @@
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:tui-smoke": "node --experimental-strip-types scripts/tui-smoke.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "files": [
     "index.ts",
-    "core",
-    "extension",
+    "src",
     "skills",
     "README.md",
-    "LICENSE",
-    "tsconfig.json"
+    "LICENSE"
   ],
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildReviewOverhead, loadSourceSnapshot } from "../core/index.ts";
+import { buildReviewOverhead, loadSourceSnapshot } from "../src/core/index.ts";
 import { assistant, header, user, writeSession } from "./fixtures.ts";
 
 test("复盘自身开销使用独立 DTO 且核心 coverage 不等同 reasoning", async (t) => {

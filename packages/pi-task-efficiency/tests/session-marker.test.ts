@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { hasSourceMarkerInSession } from "../extension/session-marker.ts";
+import { hasSourceMarkerInSession } from "../src/extension/session-marker.ts";
 
 const marker = JSON.stringify({ type: "custom", customType: "task-efficiency:source", data: {} });
 

@@ -6,7 +6,7 @@ import {
   buildSessionProjection,
   loadSourceSnapshot,
   SourceSnapshotError,
-} from "../core/index.ts";
+} from "../src/core/index.ts";
 import {
   assistant,
   BASE_TIME,

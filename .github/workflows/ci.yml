@@ -1,7 +1,7 @@
 # CI：推送到 main、Pull Request 与手动触发时运行。
 # - changes：判断本次改动是否只有文档（*.md、LICENSE），纯文档改动跳过代码任务。
 # - docs：检查改动的空白错误和已跟踪文档的站内链接；所有改动都运行。
-# - checks：在 `.node-version` 运行时上运行根 verify（typecheck、lint、全部测试、文档链接、打包内容）。
+# - checks：在 `.node-version` 运行时上运行根 verify（typecheck、各包与脚本 lint、全部测试含跨包契约、文档链接、打包内容）。
 # - compat：在 Node 22.19（根 package.json engines 的下限）上运行同一套 verify，防止主版本升级掩盖最低版本回归。
 # - verify：汇总以上任务，是 main 分支保护要求的唯一检查；任一任务失败、取消或意外跳过都会使其失败。
 # release.yml 通过 workflow_call 复用本工作流，因此不要在这里依赖仅 push 事件存在的上下文。

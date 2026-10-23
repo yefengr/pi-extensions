@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { REVIEW_NAME_PREFIX, SOURCE_ENTRY_TYPE } from "../extension/records.ts";
+import { REVIEW_NAME_PREFIX, SOURCE_ENTRY_TYPE } from "../src/extension/records.ts";
 
 /** fixture 会话总数，选择器断言依赖该值。 */
 const SESSION_COUNT = 112;

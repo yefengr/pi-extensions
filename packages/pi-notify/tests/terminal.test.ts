@@ -4,7 +4,7 @@ import {
   detectTerminal,
   sendTerminalNotification,
   serializeNotification,
-} from "../../platforms/terminal.ts";
+} from "../src/platforms/terminal.ts";
 
 describe("terminal detection", () => {
   it("detects Ghostty and OSC 777", () => {
