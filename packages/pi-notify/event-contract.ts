@@ -34,8 +34,8 @@ export function getPackageVersion(packageDir: string): string {
   try {
     const raw = readFileSync(join(packageDir, "package.json"), "utf-8");
     const parsed = JSON.parse(raw) as { version?: unknown };
-    return typeof parsed.version === "string" ? parsed.version : "0.3.0";
+    return typeof parsed.version === "string" ? parsed.version : "0.3.1";
   } catch {
-    return "0.3.0";
+    return "0.3.1";
   }
 }
