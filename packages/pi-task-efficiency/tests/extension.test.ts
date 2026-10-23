@@ -11,8 +11,8 @@ import {
   type SourceSnapshot,
   TaskRangeError,
   validateTaskRange,
-} from "../core/index.ts";
-import { TaskEfficiencyError } from "../extension/errors.ts";
+} from "../src/core/index.ts";
+import { TaskEfficiencyError } from "../src/extension/errors.ts";
 import {
   buildSourceReference,
   compactReportMarker,
@@ -23,13 +23,13 @@ import {
   revisionForProposal,
   SOURCE_ENTRY_TYPE,
   type ProposalInput,
-} from "../extension/records.ts";
+} from "../src/extension/records.ts";
 import {
   registerTaskEfficiencyExtension,
   REVIEW_NAME_PREFIX,
   type TaskEfficiencyExtensionDependencies,
-} from "../extension/runtime.ts";
-import { parseScopeAction, scopeActionOptions } from "../extension/review-ui.ts";
+} from "../src/extension/runtime.ts";
+import { parseScopeAction, scopeActionOptions } from "../src/extension/review-ui.ts";
 import { assistant, entry, header, user, writeSession } from "./fixtures.ts";
 
 test("范围动作只接受当前中文标签，旧英文动作按取消处理", () => {

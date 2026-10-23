@@ -17,7 +17,7 @@ import {
   type ScopeProjection,
   type ScopeProjectionPage,
   type SessionProjection,
-} from "../core/index.ts";
+} from "../src/core/index.ts";
 import { assistant, entry, header, message, toolResult, user, writeSession } from "./fixtures.ts";
 
 async function scopeFixture(t: Parameters<typeof writeSession>[0]) {

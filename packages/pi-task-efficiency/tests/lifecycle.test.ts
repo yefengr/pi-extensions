@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildScopeDetailProjection, buildScopeProjection, buildSessionProjection, loadSourceSnapshot } from "../core/index.ts";
-import { parseLifecycleRecord } from "../core/lifecycle.ts";
+import { buildScopeDetailProjection, buildScopeProjection, buildSessionProjection, loadSourceSnapshot } from "../src/core/index.ts";
+import { parseLifecycleRecord } from "../src/core/lifecycle.ts";
 import { entry, header, lifecycleRecord, lifecycleRecordV3, user, writeSession } from "./fixtures.ts";
 
 const OUTCOMES = ["completed", "turn_limit", "timeout", "queue_timeout", "cancelled", "error"] as const;

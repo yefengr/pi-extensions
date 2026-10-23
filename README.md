@@ -75,7 +75,9 @@ npm pack --dry-run -w @yefengr/pi-notify
 
 All packages inherit TypeScript options from `tsconfig.base.json` and lint rules from the root `biome.json`. Package configurations keep only local file scopes, aliases, and required interoperability options. Every workspace exposes `typecheck` and `lint`; lint does not format source files. `pi-subagents` additionally retains import organization checks.
 
-Keep Pi registration, lifecycle wiring, and UI at the extension boundary; separate business logic from those adapters where the package's complexity warrants it. This is a shared dependency direction, not a mandatory directory template: lightweight notification handlers, the monitor engine, the review pipeline, and the subagent runtime retain their own structures and test runners.
+Each package keeps a stable root `index.ts` for Pi loading, implementation in `src/`, and tests and test helpers in `tests/`. Package-specific directories such as `scripts/`, `skills/`, and `docs/` remain at the package root. Published tarballs include the runtime implementation but not tests.
+
+Within `src/`, keep Pi registration, lifecycle wiring, and UI at the extension boundary; separate business logic from those adapters where the package's complexity warrants it. Lightweight notification handlers, the monitor engine, the review pipeline's `core/` and `extension/` layers, and the subagent runtime retain their own internal organization and test runners.
 
 Cross-package record changes must update their consumers and the tests in `scripts/contracts/`. These tests call the actual producer and consume its serialized output; they run through `npm test` and CI's existing `npm run verify`. Historical lifecycle v2 and current v3 records are both readable by task-efficiency, without adding a runtime dependency on subagents. Repository-only TypeScript configurations are not shipped in extension tarballs.
 

@@ -8,8 +8,8 @@ import {
   buildTaskEfficiencyReport,
   loadSourceSnapshot,
   validateTaskRange,
-} from "../../packages/pi-task-efficiency/core/index.ts";
-import { parseLifecycleRecord } from "../../packages/pi-task-efficiency/core/lifecycle.ts";
+} from "../../packages/pi-task-efficiency/src/core/index.ts";
+import { parseLifecycleRecord } from "../../packages/pi-task-efficiency/src/core/lifecycle.ts";
 import {
   assistant,
   BASE_TIME,

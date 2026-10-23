@@ -5,7 +5,7 @@ import {
   buildTaskEfficiencyReport,
   loadSourceSnapshot,
   validateTaskRange,
-} from "../core/index.ts";
+} from "../src/core/index.ts";
 import { assistant, entry, header, message, usage, user, writeSession } from "./fixtures.ts";
 
 function assistantMessage(

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { loadConfig, resolveConfigPath, saveConfig, updateConfig } from "../../settings.ts";
+import { loadConfig, resolveConfigPath, saveConfig, updateConfig } from "../src/settings.ts";
 
 function withTempAgentDir(run: (directory: string) => void): void {
   const directory = mkdtempSync(join(tmpdir(), "agent-tools-notify-settings-"));

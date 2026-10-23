@@ -2,7 +2,7 @@
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
   "extends": "//",
   "files": {
-    "includes": ["src/**/*.ts", "test/**/*.ts", "*.ts", "*.mjs"]
+    "includes": ["src/**/*.ts", "tests/**/*.ts", "*.ts", "*.mjs"]
   },
   "assist": {
     "enabled": true,

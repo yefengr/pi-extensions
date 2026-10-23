@@ -10,7 +10,7 @@ import {
   loadSourceSnapshot,
   SourceSnapshotError,
   SnapshotMismatchError,
-} from "../core/index.ts";
+} from "../src/core/index.ts";
 import { assistant, entry, header, message, timestamp, usage, user, writeSession } from "./fixtures.ts";
 
 function errorCode(code: string): (error: unknown) => boolean {

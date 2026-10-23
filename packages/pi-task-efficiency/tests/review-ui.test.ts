@@ -12,7 +12,7 @@ import {
   selectSourceSession,
   type SessionSelectorKeybindings,
   type SessionSelectorTheme,
-} from "../extension/review-ui.ts";
+} from "../src/extension/review-ui.ts";
 
 const BASE_TIME = Date.parse("2026-09-07T00:00:00.000Z");
 const WIDTH = 120;

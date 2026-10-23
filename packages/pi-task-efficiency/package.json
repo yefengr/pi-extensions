@@ -48,8 +48,7 @@
   },
   "files": [
     "index.ts",
-    "core",
-    "extension",
+    "src",
     "skills",
     "README.md",
     "LICENSE"

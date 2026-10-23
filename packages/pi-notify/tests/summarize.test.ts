@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeRecapText, summarizeLastMessage } from "../../summarize.ts";
+import { normalizeRecapText, summarizeLastMessage } from "../src/summarize.ts";
 
 describe("recap summarization", () => {
   it("removes Markdown and flattens whitespace", () => {

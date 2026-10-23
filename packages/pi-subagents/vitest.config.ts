@@ -5,10 +5,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "#src": path.resolve(import.meta.dirname, "src"),
-      "#test": path.resolve(import.meta.dirname, "test"),
+      "#test": path.resolve(import.meta.dirname, "tests"),
     },
   },
   test: {
-    include: ["test/**/*.test.ts"],
+    include: ["tests/**/*.test.ts"],
   },
 });

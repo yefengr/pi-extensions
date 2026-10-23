@@ -2,10 +2,8 @@
   "extends": "../../tsconfig.base.json",
   "include": [
     "index.ts",
-    "*.ts",
-    "platforms/**/*.ts",
-    "tui/**/*.ts",
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "tests/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }
