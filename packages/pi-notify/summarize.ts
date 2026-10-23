@@ -155,7 +155,7 @@ export function normalizeRecapText(text: string): string {
     .replace(/^[ \t]*#{1,6}[^\r\n]*/gm, "")
     .replace(/^[ \t]*>[ \t]?/gm, "")
     .replace(/^[ \t]*[-+][ \t]+/gm, "")
-    .replace(/[\*`~]/g, "")
+    .replace(/[*`~]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 

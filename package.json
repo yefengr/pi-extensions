@@ -13,14 +13,16 @@
   },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
-    "test": "npm run test:release && npm run test --workspaces --if-present",
+    "lint": "biome check scripts && npm run lint --workspaces",
+    "test": "npm run test:release && npm run test:contracts && npm run test --workspaces --if-present",
+    "test:contracts": "node --experimental-strip-types --test scripts/contracts/*.test.mjs",
     "test:release": "node --test scripts/*.test.mjs",
     "check:docs": "node scripts/check-doc-links.mjs",
     "verify": "npm run typecheck && npm run lint && npm test && npm run check:docs && npm run pack:dry-run",
     "pack:dry-run": "npm pack --dry-run --workspaces"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@types/node": "22.19.15",
     "typescript": "6.0.3"
   }

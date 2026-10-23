@@ -6,7 +6,7 @@ import {
   loadSourceSnapshot,
   validateTaskRange,
 } from "../core/index.ts";
-import { assistant, entry, header, message, toolResult, usage, user, writeSession } from "./fixtures.ts";
+import { assistant, entry, header, message, usage, user, writeSession } from "./fixtures.ts";
 
 function assistantMessage(
   id: string,

@@ -81,7 +81,7 @@ export class MonitorRuntime {
     const preliminary = restoreRecords(branch, binding.owner, new Set());
     const records = restoreRecords(branch, binding.owner, this.confirmedIds(ctx, branch, preliminary));
     if (reason === "reload") {
-      records.forEach((task) => binding.allowed.add(task.id));
+      records.forEach((task) => { binding.allowed.add(task.id); });
       if (!ctx.isIdle()) {
         const source = [...branch].reverse().find((entry) => entry.type === "custom_message" || (entry.type === "message" && entry.message.role === "user"));
         const receipt = source ? receiptOf(source) : undefined;
@@ -141,7 +141,7 @@ export class MonitorRuntime {
       const unconfirmed = task.pending.filter((batch) => binding.inFlight.has(batch.id) && !binding.confirmedBatches.has(batch.id));
       if (!unconfirmed.length) continue;
       binding.allowed.delete(task.id);
-      unconfirmed.forEach((batch) => binding.inFlight.delete(batch.id));
+      unconfirmed.forEach((batch) => { binding.inFlight.delete(batch.id); });
       this.logger.write(task, { action: "receipt-error", reason: "回执未确认，结果保留", pendingBatches: task.pending.length });
       binding.ctx.ui.notify(safeText(`监听 ${task.name} 的回传尚未确认，结果已保留；请用 /monitor resume ${task.id} 重试`), "warning");
     }
@@ -151,7 +151,7 @@ export class MonitorRuntime {
   onReceipt(receipt: DeliveryReceipt): void {
     const binding = this.binding;
     if (!binding || receipt.ownerSessionId !== binding.owner || !this.isCurrent(binding)) return;
-    receipt.deliveries.forEach((item) => item.batchIds.forEach((id) => binding.inFlight.add(id)));
+    receipt.deliveries.forEach((item) => { item.batchIds.forEach((id) => { binding.inFlight.add(id); }); });
     if (binding.receiptTimer) return;
     // 原生 message_end 回调完成后才落盘，不能在回调内清空 pending。
     binding.receiptTimer = setTimeout(() => {
@@ -189,9 +189,11 @@ export class MonitorRuntime {
         }
       }
     } catch (error) {
-      binding.engine.records.filter((task) => task.pending.length).forEach((task) => this.logger.write(task, {
-        action: "receipt-error", error: String(error).slice(0, 500), pendingBatches: task.pending.length,
-      }));
+      binding.engine.records.filter((task) => task.pending.length).forEach((task) => {
+        this.logger.write(task, {
+          action: "receipt-error", error: String(error).slice(0, 500), pendingBatches: task.pending.length,
+        });
+      });
       binding.ctx.ui.notify(safeText(`监听回执核验失败，结果继续保留：${String(error)}`), "error");
     }
   }
@@ -293,7 +295,7 @@ export class MonitorRuntime {
     const fresh = binding.engine.get(id);
     if (!fresh) throw new Error("监听任务已失效");
     if (fresh.pending.some((batch) => binding.confirmedBatches.has(batch.id))) throw new Error("结果回执已落盘，但确认状态仍无法保存；请先修复会话存储，再恢复");
-    if (ctx.isIdle()) fresh.pending.forEach((batch) => binding.inFlight.delete(batch.id));
+    if (ctx.isIdle()) fresh.pending.forEach((batch) => { binding.inFlight.delete(batch.id); });
     binding.allowed.add(id);
     if (fresh.status === "paused") binding.engine.resume(id);
     this.changed(binding);
@@ -414,7 +416,7 @@ export class MonitorRuntime {
       const deliverable = { ...record, pending: record.pending.filter((batch) => !binding.inFlight.has(batch.id)) };
       const { content, receipt } = buildDelivery([deliverable], binding.owner, "notify");
       this.pi.appendEntry(NOTIFICATION_TYPE, { content, receipt });
-      receipt.deliveries.forEach((item) => item.batchIds.forEach((id) => binding.inFlight.add(id)));
+      receipt.deliveries.forEach((item) => { item.batchIds.forEach((id) => { binding.inFlight.add(id); }); });
       this.onReceipt(receipt);
       const selected = new Set(receipt.deliveries.flatMap((item) => item.batchIds));
       const count = record.pending.filter((batch) => selected.has(batch.id)).reduce((n, batch) => n + batch.events.length, 0);
@@ -433,7 +435,7 @@ export class MonitorRuntime {
       const delivery = buildDelivery(records, binding.owner);
       const content = delivery.content;
       receipt = delivery.receipt;
-      receipt.deliveries.forEach((item) => item.batchIds.forEach((id) => binding.inFlight.add(id)));
+      receipt.deliveries.forEach((item) => { item.batchIds.forEach((id) => { binding.inFlight.add(id); }); });
       this.pi.sendMessage({ customType: RESULT_TYPE, content, display: true, details: receipt }, { deliverAs: "followUp", triggerTurn: true });
       receipt.deliveries.forEach((item) => {
         const task = records.find((candidate) => candidate.id === item.taskId);
@@ -443,8 +445,8 @@ export class MonitorRuntime {
         this.logger.write(task, { action: "deliver", delivery: "explain", batches: item.batchIds, events: count });
       });
     } catch (error) {
-      receipt?.deliveries.forEach((item) => item.batchIds.forEach((id) => binding.inFlight.delete(id)));
-      records.forEach((task) => this.logger.write(task, { action: "deliver-error", error: String(error).slice(0, 500) }));
+      receipt?.deliveries.forEach((item) => { item.batchIds.forEach((id) => { binding.inFlight.delete(id); }); });
+      records.forEach((task) => { this.logger.write(task, { action: "deliver-error", error: String(error).slice(0, 500) }); });
       binding.ctx.ui.notify(safeText(`监听结果回传失败，将保留待回传结果：${String(error)}`), "error");
     }
   }

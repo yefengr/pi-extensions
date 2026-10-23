@@ -27,7 +27,9 @@ npm run check:docs
 npm run pack:dry-run
 ```
 
-单包验证使用 `npm test -w @yefengr/<包名>`、`npm run typecheck -w @yefengr/<包名>`；`pi-subagents` 的测试使用 vitest，其余包使用 Node 内置测试运行器。只运行与当前改动相关的命令，跨包共享脚本或发布配置变更时运行 `npm run verify`。
+单包验证使用 `npm test -w @yefengr/<包名>`、`npm run typecheck -w @yefengr/<包名>`、`npm run lint -w @yefengr/<包名>`；`pi-subagents` 的测试使用 vitest，其余包使用 Node 内置测试运行器。所有包继承根 `tsconfig.base.json` 和 `biome.json`，局部配置只保留文件范围、别名和必要的互操作选项，不重复覆盖共享选项。保留各包适合其职责的内部结构，不为统一目录而搬迁源码。
+
+跨包记录变更必须同步直接消费者，并在 `scripts/contracts/` 用真实生产函数的序列化输出验证解析、投影和统计；使用 `npm run test:contracts` 单独运行，该验证也包含在根 `npm test` 中。历史数据的读取兼容须明确保留，不能只修改生产端。只运行与当前改动相关的命令，跨包协议、共享脚本或发布配置变更时运行 `npm run verify`。
 
 ## CI
 

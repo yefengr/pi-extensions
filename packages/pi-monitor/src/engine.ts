@@ -219,7 +219,7 @@ export class MonitorEngine {
 
   private accept(id: string, result: CheckResult, elapsedMs = 0): void {
     const task = this.tasks.get(id);
-    if (!task || task.status !== "running") return;
+    if (task?.status !== "running") return;
     if (this.expired(task)) { this.commit({ ...task, status: "expired" }); return; }
     if (result.state === "error") { this.failed(task, result.summary, elapsedMs); return; }
     const seen = new Set(task.seenIds);

@@ -3,14 +3,13 @@ import path from "node:path";
 
 import { deepFreeze } from "./freeze.ts";
 import { intervalSeconds, overlapSeconds, type Interval } from "./intervals.ts";
-import { parseLifecycleRecordV2, type LifecycleRecordV2 } from "./lifecycle-v2.ts";
+import { parseLifecycleRecord, type LifecycleRecord } from "./lifecycle.ts";
 import { analyzeModelEvents, combineModelEvents } from "./model-events.ts";
 import { deriveTurns, entryTimestampMilliseconds } from "./range.ts";
 import type {
   ChildCoverage,
   ChildTimeline,
   InternalTurn,
-  SubagentIssue,
   SubagentIssueCode,
   SubagentMetrics,
   TaskEfficiencyDependencies,
@@ -54,9 +53,9 @@ export async function analyzeSubagents(
   if (calls.length === 0 && lifecycleEntries.length === 0) return null;
 
   const issues = new Set<SubagentIssueCode>();
-  const validRecords: LifecycleRecordV2[] = [];
+  const validRecords: LifecycleRecord[] = [];
   for (const lifecycleEntry of lifecycleEntries) {
-    const parsed = parseLifecycleRecordV2(lifecycleEntry.raw.data);
+    const parsed = parseLifecycleRecord(lifecycleEntry.raw.data);
     if (parsed.record !== null) validRecords.push(parsed.record);
     else issues.add(parsed.unsupported ? "unsupported_lifecycle_version" : "invalid_lifecycle_record");
   }
@@ -130,10 +129,10 @@ function lifecycleEntriesForTask(
 
 function selectInvocations(
   calls: readonly ParentCall[],
-  records: readonly LifecycleRecordV2[],
+  records: readonly LifecycleRecord[],
   intervals: readonly Interval[],
   issues: Set<SubagentIssueCode>,
-): { records: readonly LifecycleRecordV2[]; serviceRecords: readonly LifecycleRecordV2[]; workflowComplete: boolean } {
+): { records: readonly LifecycleRecord[]; serviceRecords: readonly LifecycleRecord[]; workflowComplete: boolean } {
   let workflowComplete = true;
   const callIds = new Set<string>();
   for (const call of calls) {
@@ -144,7 +143,7 @@ function selectInvocations(
     callIds.add(call.toolCallId);
   }
   const byToolCall = group(records.filter((record) => record.invocationSource === "tool"), (record) => record.toolCallId!);
-  const selected: LifecycleRecordV2[] = [];
+  const selected: LifecycleRecord[] = [];
   for (const call of calls) {
     const matching = byToolCall.get(call.toolCallId) ?? [];
     if (matching.length !== 1) {
@@ -231,7 +230,7 @@ function indexChildren(
 }
 
 function analyzeChildWindows(
-  records: readonly LifecycleRecordV2[],
+  records: readonly LifecycleRecord[],
   children: ReadonlyMap<string, readonly ChildSource[]>,
   issues: Set<SubagentIssueCode>,
 ): ChildWindowAnalysis {
@@ -261,7 +260,7 @@ function analyzeChildWindows(
       windowsComplete = false;
     }
     const turns = deriveTurns(child.snapshot.activeBranch);
-    const owners = new Map<string, LifecycleRecordV2>();
+    const owners = new Map<string, LifecycleRecord>();
     const selectedTurns = new Map<string, InternalTurn>();
     for (const record of sessionRecords) {
       const matching = turns.filter((turn) => intersectsTurn(turn, record));
@@ -317,7 +316,7 @@ function analyzeChildWindows(
 }
 
 function buildCoverage(
-  selected: { records: readonly LifecycleRecordV2[]; workflowComplete: boolean },
+  selected: { records: readonly LifecycleRecord[]; workflowComplete: boolean },
   childUsage: UsageAnalysis,
   windows: Pick<ChildWindowAnalysis, "settled" | "windowsComplete">,
   issues: ReadonlySet<SubagentIssueCode>,
@@ -431,7 +430,7 @@ function toolResultTimes(entries: readonly SnapshotEntry[]): ReadonlyMap<string,
   return new Map([...grouped].filter(([, values]) => values.length === 1).map(([id, values]) => [id, values[0]]));
 }
 
-function validateStableIdentity(records: readonly LifecycleRecordV2[], issues: Set<SubagentIssueCode>): void {
+function validateStableIdentity(records: readonly LifecycleRecord[], issues: Set<SubagentIssueCode>): void {
   if (hasDuplicate(records.map((record) => `${record.id}:${record.invocationIndex}`))) {
     issues.add("duplicate_invocation_identity");
   }
@@ -447,7 +446,7 @@ function validateStableIdentity(records: readonly LifecycleRecordV2[], issues: S
   }
 }
 
-function matchesInvocationUsage(record: LifecycleRecordV2, analysis: UsageAnalysis): boolean {
+function matchesInvocationUsage(record: LifecycleRecord, analysis: UsageAnalysis): boolean {
   const tokens = analysis.aggregation.tokens;
   return analysis.usageComplete
     && tokens.input === record.invocationUsage.input
@@ -455,12 +454,12 @@ function matchesInvocationUsage(record: LifecycleRecordV2, analysis: UsageAnalys
     && tokens.cacheWrite === record.invocationUsage.cacheWrite;
 }
 
-function hasOverlappingWindows(records: readonly LifecycleRecordV2[]): boolean {
+function hasOverlappingWindows(records: readonly LifecycleRecord[]): boolean {
   const ordered = records.slice().sort((left, right) => left.startedAt - right.startedAt);
   return ordered.some((record, index) => index > 0 && record.startedAt < ordered[index - 1].completedAt);
 }
 
-function intersectsTurn(turn: InternalTurn, record: LifecycleRecordV2): boolean {
+function intersectsTurn(turn: InternalTurn, record: LifecycleRecord): boolean {
   const start = parseTurnTimestamp(turn.startTimestamp);
   const end = parseTurnTimestamp(turn.endTimestamp);
   return start !== null && end !== null && start <= record.completedAt && end >= record.startedAt;

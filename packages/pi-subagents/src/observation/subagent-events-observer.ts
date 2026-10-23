@@ -52,7 +52,7 @@ export class SubagentEventsObserver implements SubagentManagerObserver {
 		this.persistTerminal(record, "subagents:resumed");
 	}
 
-	/** Public terminal event and persisted custom entry share one exact v2 object. */
+	/** Public terminal event and persisted custom entry share one exact v3 object. */
 	private persistTerminal(record: Subagent, eventName: string): void {
 		const data = buildLifecycleRecord(record);
 		this.emit(eventName, data);

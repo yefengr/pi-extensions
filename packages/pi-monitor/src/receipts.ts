@@ -27,8 +27,9 @@ export function persistedReceiptIds(file: string | undefined, branch: readonly E
     } catch { /* 不把不完整/损坏行当作投递确认。 */ }
   };
   try {
-    let length: number;
-    while ((length = readSync(fd, chunk, 0, chunk.length, null)) > 0) {
+    while (true) {
+      const length = readSync(fd, chunk, 0, chunk.length, null);
+      if (length <= 0) break;
       let text = decoder.write(chunk.subarray(0, length));
       if (dropping) {
         const newline = text.indexOf("\n");
@@ -36,9 +37,10 @@ export function persistedReceiptIds(file: string | undefined, branch: readonly E
         text = text.slice(newline + 1); dropping = false;
       }
       carry += text;
-      let end: number;
-      while ((end = carry.indexOf("\n")) >= 0) {
+      let end = carry.indexOf("\n");
+      while (end >= 0) {
         accept(carry.slice(0, end)); carry = carry.slice(end + 1);
+        end = carry.indexOf("\n");
       }
       if (carry.length > MAX_LINE_LENGTH) { carry = ""; dropping = true; }
       if (confirmed.size === candidates.size) break;

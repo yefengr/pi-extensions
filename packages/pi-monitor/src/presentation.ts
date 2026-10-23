@@ -130,7 +130,7 @@ export function formatTaskText(task: MonitorRecord): string {
   const cursor = cursorText(task);
   if (cursor) rows.push(["游标", cursor]);
   // 所有标签固定两个汉字，按字符补齐即可对齐。
-  rows.forEach(([label, value]) => lines.push(`  ${label}  ${value}`));
+  rows.forEach(([label, value]) => { lines.push(`  ${label}  ${value}`); });
   return lines.join("\n");
 }
 
@@ -234,7 +234,7 @@ export function buildDelivery(records: MonitorRecord[], ownerSessionId: string, 
   const deliveries: DeliveryReceipt["deliveries"] = [];
   let size = header.length;
 
-  outer: for (const task of records) {
+  for (const task of records) {
     const blocks: string[] = [];
     const batchIds: string[] = [];
     let taskSize = taskHeading(task).length + 2;
@@ -250,7 +250,7 @@ export function buildDelivery(records: MonitorRecord[], ownerSessionId: string, 
       taskSize += block.length + 2;
     }
     // 一批都放不下时整轮结束；已选中的批次必须先入列再退出。
-    if (!blocks.length) break outer;
+    if (!blocks.length) break;
     sections.push(`${taskHeading(task)}\n\n${blocks.join("\n\n")}`);
     deliveries.push({ taskId: task.id, batchIds });
     size += taskSize + 2;

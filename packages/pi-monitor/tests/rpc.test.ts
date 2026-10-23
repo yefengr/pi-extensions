@@ -50,9 +50,10 @@ test("real RPC: start/resume without confirmation, once/continuous, reload and s
   child.stderr.on("data", (chunk) => { diagnostics = (diagnostics + chunk).slice(-4_000); });
   child.stdout.on("data", (chunk) => {
     buffer += chunk.toString();
-    let end: number;
-    while ((end = buffer.indexOf("\n")) >= 0) {
+    let end = buffer.indexOf("\n");
+    while (end >= 0) {
       const line = buffer.slice(0, end).replace(/\r$/, ""); buffer = buffer.slice(end + 1);
+      end = buffer.indexOf("\n");
       if (!line) continue;
       try {
         const event = JSON.parse(line); events.push(event);

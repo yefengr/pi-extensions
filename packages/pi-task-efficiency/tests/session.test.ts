@@ -11,7 +11,7 @@ import {
   SourceSnapshotError,
   SnapshotMismatchError,
 } from "../core/index.ts";
-import { assistant, entry, header, message, timestamp, toolResult, usage, user, writeSession } from "./fixtures.ts";
+import { assistant, entry, header, message, timestamp, usage, user, writeSession } from "./fixtures.ts";
 
 function errorCode(code: string): (error: unknown) => boolean {
   return (error) => error instanceof SourceSnapshotError && error.code === code;

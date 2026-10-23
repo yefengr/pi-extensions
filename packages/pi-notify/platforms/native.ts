@@ -1,5 +1,5 @@
 import type { NotificationLevel, NotifyResult } from "../types.js";
-import { detectTerminal, isTerminalSupported, sendTerminalNotification } from "./terminal.js";
+import { sendTerminalNotification } from "./terminal.js";
 
 export { detectTerminal, isTerminalSupported } from "./terminal.js";
 
