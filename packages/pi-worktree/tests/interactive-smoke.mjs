@@ -58,11 +58,19 @@ async function runScenario(fixture, scenario) {
   if (!command) throw new Error("未注册 /worktree:remove");
   let selections = 0;
   let confirmations = 0;
+  const statuses = new Map();
+  const progress = [];
   const context = {
     cwd: realpathSync(repo),
     mode: "tui",
+    hasUI: true,
     ui: {
+      setStatus(key, text) {
+        if (text === undefined) statuses.delete(key);
+        else { statuses.set(key, text); progress.push(text); }
+      },
       async custom(factory) {
+        assert.equal(statuses.size, 0, "选择器打开前应清理加载状态");
         selections++;
         return new Promise((resolve) => {
           const theme = { fg: (_color, text) => text };
@@ -85,9 +93,13 @@ async function runScenario(fixture, scenario) {
         });
       },
       async select(_title, options) {
+        assert.equal(statuses.size, 0, "范围选择期间不应显示执行状态");
         return options[scenario === "batch-keep" ? 1 : 0];
       },
       async confirm(_title, body) {
+        assert.equal(statuses.size, 0, "确认期间不应显示执行状态");
+        assert.ok(progress.some((text) => /正在检查 1\/2：first/.test(text)));
+        assert.ok(progress.some((text) => /正在检查 2\/2：second/.test(text)));
         confirmations++;
         assert.match(body, /first/);
         assert.match(body, /second/);
@@ -102,6 +114,20 @@ async function runScenario(fixture, scenario) {
     },
   };
   await command.handler("", context);
+  assert.equal(statuses.size, 0, "成功、失败或取消后状态均应清理");
+  assert.ok(progress.some((text) => /正在加载工作树.*已耗时 \d+ 秒/.test(text)));
+  if (["batch-refresh", "batch-keep", "partial-stop", "branch-delete-fail"].includes(scenario)) {
+    for (const phase of ["移除", "复核", ...(scenario === "batch-keep" ? [] : ["删除关联分支"])]) {
+      assert.ok(progress.some((text) => text.includes(`正在${phase} 1/2：first`)), phase);
+    }
+  }
+  if (scenario === "batch-refresh" || scenario === "batch-keep") {
+    assert.ok(progress.some((text) => text.includes("正在移除 2/2：second")));
+    assert.ok(progress.filter((text) => text.includes("正在加载工作树")).length >= 2);
+  }
+  if (scenario === "cancel-confirm" || scenario === "preflight-reject" || scenario === "branch-changed") {
+    assert.ok(progress.every((text) => !text.includes("正在移除")));
+  }
 
   if (scenario === "batch-refresh" || scenario === "batch-keep") {
     assert.equal(selections, 2);

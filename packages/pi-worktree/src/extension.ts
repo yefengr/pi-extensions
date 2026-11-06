@@ -12,7 +12,6 @@ import {
   WorktreeError,
   createWorktree,
   inspectCreateRequest,
-  inspectRemoveWorktree,
   listWorktrees,
   removeWorktree,
   resolveMigrationTarget,
@@ -20,10 +19,10 @@ import {
   type CreateWorktreeInput,
   type CreateWorktreeResult,
   type RemoveWorktreeInput,
-  type RemoveWorktreeResult,
 } from "./core.ts";
-import { formatLocalTime, formatRemoveResult, formatWorktreeList } from "./worktree-format.ts";
-import { selectWorktrees } from "./worktree-select.ts";
+import { formatRemoveResult, formatWorktreeList } from "./worktree-format.ts";
+import { createWorktreeProgress, type WorktreeProgress } from "./worktree-progress.ts";
+import { formatRemoveProgress, removeInteractively } from "./worktree-remove-command.ts";
 import { SessionMigrationError, migratePersistentSession } from "./session.ts";
 import { createSessionHandoff, formatMigrationCommand, parseContinueTask } from "./session-handoff.ts";
 import { registerWorktreeSwitch } from "./worktree-switch.ts";
@@ -92,9 +91,10 @@ export default function (pi: ExtensionAPI) {
   const domainOptions = { runner, creatorPath: CREATOR_PATH };
   let mutationInProgress = false;
   const handoff = createSessionHandoff(pi);
+  const progress = createWorktreeProgress(pi);
   registerWorktreeSwitch(pi, runner,
     { forkFrom: (source, target) => SessionManager.forkFrom(source, target) },
-    withMutationLock, (error) => reportCommandError(pi, error));
+    withMutationLock, (error) => reportCommandError(pi, error), progress);
 
   pi.registerCommand(CREATE_COMMAND, {
     description: "创建并初始化由 Pi 管理的工作树，随后迁移持久会话",
@@ -108,10 +108,11 @@ export default function (pi: ExtensionAPI) {
           : await collectCreateInput(ctx, domainOptions, repoPath);
         if (!input) return;
 
-        await withMutationLock(async () => {
+        await withMutationLock(() => progress.run(ctx, "正在创建并初始化工作树…", async (operation) => {
           const result = await createWorktree(input, domainOptions);
+          operation.update(`正在迁移到 ${path.basename(result.worktreePath)}…`);
           await migrateCreatedWorktree(pi, ctx, result);
-        });
+        }));
       } catch (error) {
         reportCommandError(pi, error);
       }
@@ -129,16 +130,21 @@ export default function (pi: ExtensionAPI) {
         if (!repoPath) return;
         const worktreePath =
           parsed?.worktreePath === undefined || parsed.worktreePath === null
-            ? await collectMigrationWorktree(ctx, runner, repoPath)
+            ? await collectMigrationWorktree(ctx, runner, repoPath, progress)
             : requireString(parsed.worktreePath, "worktreePath");
         if (!worktreePath) return;
         const input: MigrationCommandInput = { repoPath, worktreePath };
 
-        await ctx.waitForIdle();
-        if (continueTask) handoff.claim(ctx, input.repoPath, input.worktreePath);
-        await withMutationLock(async () => {
-          const target = await resolveMigrationTarget(input.repoPath, input.worktreePath, { runner });
-          await migrateRegisteredWorktree(pi, ctx, target, continueTask);
+        await progress.run(ctx, "正在检查迁移目标…", async (operation) => {
+          operation.update(`正在等待会话空闲：${path.basename(input.worktreePath)}…`);
+          await ctx.waitForIdle();
+          if (continueTask) handoff.claim(ctx, input.repoPath, input.worktreePath);
+          await withMutationLock(async () => {
+            operation.update(`正在检查迁移目标：${path.basename(input.worktreePath)}…`);
+            const target = await resolveMigrationTarget(input.repoPath, input.worktreePath, { runner });
+            operation.update(`正在迁移到 ${path.basename(target.worktreePath)}…`);
+            await migrateRegisteredWorktree(pi, ctx, target, continueTask);
+          });
         });
       } catch (error) {
         if (continueTask) handoff.clear();
@@ -171,7 +177,11 @@ export default function (pi: ExtensionAPI) {
         const repoPath = await resolveCommandRepoPath(parsed?.repoPath, ctx, runner);
         if (!repoPath) return;
         if (!parsed) {
-          await removeInteractively(ctx, repoPath);
+          await removeInteractively(ctx, repoPath, {
+            runner, progress, withMutationLock,
+            report: (text) => reportCommand(pi, text),
+            reportError: (error) => reportCommandError(pi, error),
+          });
           return;
         }
         const input: RemoveWorktreeInput = {
@@ -181,7 +191,12 @@ export default function (pi: ExtensionAPI) {
           keepBranch: parseKeepBranch(parsed.keepBranch),
           currentCwd: ctx.cwd,
         };
-        const result = await withMutationLock(() => removeWorktree(input, { runner }));
+        const result = await withMutationLock(() => progress.run(
+          ctx, formatRemoveProgress("inspect", path.basename(input.worktreePath)),
+          async (operation) => removeWorktree(input, {
+            runner, onProgress: (phase) => operation.update(formatRemoveProgress(phase, path.basename(input.worktreePath))),
+          }),
+        ));
         reportCommand(pi, formatRemoveResult(result));
       } catch (error) {
         reportCommandError(pi, error);
@@ -196,9 +211,8 @@ export default function (pi: ExtensionAPI) {
       "创建由 Pi 管理的工作树（Git linked worktree），可能创建本地分支，并在 Git 管理目录写入 Pi 所有权标记。项目存在 .pi/worktree/setup.sh 时，调用前必须先读取并审查该脚本，再通过 setupHookApproved=true 明确批准；批准绑定当前内容标识。初始化成功后安排自动切换并结束本轮，切换成功后会继续原任务。必须单独调用本工具，不要与其他工具放在同一批次；自动切换完成前不得继续在旧目录调用工具。临时会话无法自动切换。",
     parameters: createSchema,
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      onUpdate?.({ content: [{ type: "text", text: "正在创建并初始化工作树..." }], details: undefined });
       const sourceSessionFile = ctx.sessionManager.getSessionFile();
-      const details = await withMutationLock(async () => {
+      const details = await withMutationLock(() => progress.run(ctx, "正在创建并初始化工作树…", async () => {
         const result = await createWorktree(
           { ...params, repoPath: params.repoPath?.trim() || ctx.cwd } as CreateWorktreeInput,
           {
@@ -208,7 +222,7 @@ export default function (pi: ExtensionAPI) {
         );
         const scheduled = !signal?.aborted && handoff.schedule(sourceSessionFile, result.repoPath, result.worktreePath);
         return createToolDetails(result, scheduled, signal?.aborted === true);
-      });
+      }, { signal, onUpdate: onUpdate ? (text) => onUpdate({ content: [{ type: "text", text }], details: undefined }) : undefined }));
       return {
         content: [{ type: "text", text: formatCreateToolResult(details) }],
         details,
@@ -240,9 +254,10 @@ export default function (pi: ExtensionAPI) {
     description:
       "仅在 confirmed=true 时非强制移除指定仓库中由 Pi 管理且干净的工作树；默认安全删除关联本地分支，keepBranch=true 时只移除工作树。拒绝当前会话工作树，未合并分支拒绝移除。",
     parameters: removeSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const result = await withMutationLock(() =>
-        removeWorktree(
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      const target = path.basename(params.worktreePath);
+      const result = await withMutationLock(() => progress.run(
+        ctx, formatRemoveProgress("inspect", target), async (operation) => removeWorktree(
           {
             repoPath: params.repoPath?.trim() || ctx.cwd,
             worktreePath: params.worktreePath,
@@ -250,86 +265,19 @@ export default function (pi: ExtensionAPI) {
             confirmed: params.confirmed,
             keepBranch: params.keepBranch,
           },
-          { runner: signalRunner(runner, signal) },
+          {
+            runner: signalRunner(runner, signal),
+            onProgress: (phase) => operation.update(formatRemoveProgress(phase, target)),
+          },
         ),
-      );
+        { signal, onUpdate: onUpdate ? (text) => onUpdate({ content: [{ type: "text", text }], details: undefined }) : undefined },
+      ));
       return {
         content: [{ type: "text", text: formatRemoveResult(result) }],
         details: result,
       };
     },
   });
-
-  async function removeInteractively(ctx: ExtensionCommandContext, repoPath: string): Promise<void> {
-    requireInteractiveCommand(ctx);
-    let completedAny = false;
-    for (;;) {
-      const candidates = (await listWorktrees(repoPath, runner)).worktrees;
-      if (candidates.length === 0) {
-        if (!completedAny) reportCommand(pi, "指定仓库没有可移除的 Pi 工作树");
-        return;
-      }
-      const selected = await selectWorktrees(ctx, candidates);
-      if (!selected?.length) return;
-      const scope = selected.some((record) => record.branch)
-        ? await ctx.ui.select("移除范围", [
-            "移除工作树和本地分支（默认）",
-            "仅移除工作树（保留本地分支）",
-          ])
-        : "移除工作树和本地分支（默认）";
-      if (!scope) return;
-      const keepBranch = scope.startsWith("仅移除");
-      const inputs = selected.map((record): RemoveWorktreeInput => ({
-        repoPath, worktreePath: record.path, currentCwd: ctx.cwd, confirmed: true, keepBranch,
-      }));
-
-      let inspected: Awaited<ReturnType<typeof inspectRemoveWorktree>>[];
-      try {
-        inspected = [];
-        for (const input of inputs) inspected.push(await inspectRemoveWorktree(input, { runner }));
-      } catch (error) {
-        reportCommandError(pi, error);
-        continue;
-      }
-      const confirmed = await ctx.ui.confirm(
-        `确认移除 ${inspected.length} 个工作树`,
-        inspected.map((item) => [
-          item.worktreePath,
-          `分支：${!item.branch ? "无（detached HEAD）" : keepBranch ? `保留 ${item.branch}` : `安全删除 ${item.branch}`}`,
-          `创建：${formatLocalTime(item.createdAt)} | 最近提交：${formatLocalTime(item.lastCommitAt)}`,
-        ].join("\n")).join("\n\n"),
-      );
-      if (!confirmed) continue;
-
-      const results: RemoveWorktreeResult[] = [];
-      let failure: { error: unknown } | undefined;
-      await withMutationLock(async () => {
-        for (let index = 0; index < inputs.length; index++) {
-          try {
-            results.push(await removeWorktree(inputs[index], { runner }, inspected[index]));
-          } catch (error) {
-            failure = { error };
-            break;
-          }
-        }
-      });
-      const removalStatus = failure?.error instanceof WorktreeError
-        ? failure.error.removalStatus
-        : "not-started";
-      const removedCount = results.length + (removalStatus === "removed" ? 1 : 0);
-      completedAny ||= removedCount > 0;
-      reportCommand(pi, [
-        `本轮已确认移除 ${removedCount}/${inputs.length} 个工作树`,
-        ...results.map(formatRemoveResult),
-        ...(removalStatus === "unverified" ? ["另有 1 个工作树移除命令已执行，结果未确认。"] : []),
-        ...(failure ? ["批量操作已停止；其余目标未处理。"] : []),
-      ].join("\n\n"));
-      if (failure) {
-        reportCommandError(pi, failure.error);
-        return;
-      }
-    }
-  }
 
   async function withMutationLock<T>(operation: () => Promise<T>): Promise<T> {
     handoff.assertAvailable();
@@ -529,9 +477,10 @@ async function collectMigrationWorktree(
   ctx: ExtensionCommandContext,
   runner: CommandRunner,
   repoPath: string,
+  progress: WorktreeProgress,
 ): Promise<string | undefined> {
   requireInteractiveCommand(ctx);
-  const candidates = (await listWorktrees(repoPath, runner)).worktrees;
+  const candidates = (await progress.run(ctx, "正在加载工作树…", async () => listWorktrees(repoPath, runner))).worktrees;
   if (candidates.length === 0) {
     throw new Error("该仓库没有可迁移的 Pi 工作树");
   }

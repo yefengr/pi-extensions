@@ -88,6 +88,7 @@ test("隔离 Git 工作区的 canonical 选择、嵌套归属与精确 cwd 切�
           },
         };
         registerWorktreeSwitch({
+          on: () => {},
           registerCommand: (_name: string, value: any) => { command = value; },
           registerShortcut: () => {}, sendUserMessage: () => { throw new Error("unexpected model request"); },
         } as never, runner, { forkFrom: () => {
@@ -113,6 +114,7 @@ function fixture() {
   const errors: unknown[] = [];
   const notices: string[] = [];
   const pi = {
+    on: () => {},
     registerCommand: (name: string, value: any) => { assert.equal(name, "worktree:switch"); command = value; },
     registerShortcut: (key: string, value: any) => { assert.equal(key, "ctrl+alt+w"); shortcut = value; },
     sendUserMessage: (...args: any[]) => dispatches.push(args),

@@ -42,6 +42,12 @@ Commands without arguments use native Pi dialogs in TUI mode. For scripted/RPC u
 
 The paths above are placeholders: use the actual path returned by creation or listing. Only `worktree:switch` can return to the main workspace; `worktree:migrate` accepts managed linked worktrees only.
 
+### Operation feedback
+
+Creation, switching, migration, and removal show temporary progress through Pi's native status API, without replacing the footer or opening a loading dialog. Status updates include the current stage and actual elapsed seconds; batch removal also shows the target name and `i/n`. Loading and preflight checks finish before selectors or confirmation dialogs open. Status is cleared on completion, failure, cancellation, or session replacement. No percentage or estimated completion time is invented.
+
+TUI displays these statuses in the footer; RPC receives native status updates when UI support is available. Print/JSON modes do not attach terminal UI components. The `worktree_create` and `worktree_remove` tools also send progress through tool updates, including without UI support; final structured results are unchanged. Elapsed updates are transient feedback, not one persistent conversation message per second.
+
 ### Creation modes
 
 - `new-branch`: requires `baseRef` and a new `branch`.

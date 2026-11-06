@@ -9,6 +9,16 @@ import {
   readWorktreeRecords, resolveRepository, resolveWorktreeRoot, runChecked, samePath,
 } from "./worktree-repository.ts";
 
+export type RemoveWorktreePhase = "inspect" | "remove" | "verify" | "branch-remove";
+
+type RemoveWorktreeOptions = Pick<DomainOptions, "runner" | "env"> & {
+  onProgress?: (phase: RemoveWorktreePhase) => void;
+};
+
+function reportProgress(options: RemoveWorktreeOptions, phase: RemoveWorktreePhase): void {
+  try { options.onProgress?.(phase); } catch { /* 反馈失败不得跳过安全检查或改变删除结果。 */ }
+}
+
 export interface RemoveWorktreeInspection extends Pick<
   RemoveWorktreeResult,
   "repoPath" | "worktreePath" | "branch" | "createdAt" | "lastCommitAt"
@@ -18,8 +28,9 @@ export interface RemoveWorktreeInspection extends Pick<
 
 export async function inspectRemoveWorktree(
   input: Omit<RemoveWorktreeInput, "confirmed">,
-  options: Pick<DomainOptions, "runner" | "env">,
+  options: RemoveWorktreeOptions,
 ): Promise<RemoveWorktreeInspection> {
+  reportProgress(options, "inspect");
   const repository = await resolveRepository(input.repoPath, options.runner);
   const worktreeRoot = await resolveWorktreeRoot(options.env, false, "remove");
   const requestedPath = normalizeRequiredString(input.worktreePath, "worktreePath");
@@ -86,7 +97,7 @@ export async function inspectRemoveWorktree(
 
 export async function removeWorktree(
   input: RemoveWorktreeInput,
-  options: Pick<DomainOptions, "runner" | "env">,
+  options: RemoveWorktreeOptions,
   expected?: RemoveWorktreeInspection,
 ): Promise<RemoveWorktreeResult> {
   if (input.confirmed !== true) {
@@ -102,6 +113,7 @@ export async function removeWorktree(
   )) {
     throw new WorktreeError("目标工作树或分支在确认后发生变化；工作树和分支均未移除，请重新确认", "remove", targetPath);
   }
+  reportProgress(options, "remove");
   await runChecked(
     options.runner,
     "git",
@@ -111,6 +123,7 @@ export async function removeWorktree(
     targetPath,
   );
 
+  reportProgress(options, "verify");
   let remaining: WorktreeRecord[];
   try {
     remaining = await readWorktreeRecords(repoPath, options.runner);
@@ -132,6 +145,7 @@ export async function removeWorktree(
   }
 
   if (branch && !input.keepBranch) {
+    reportProgress(options, "branch-remove");
     await deleteAssociatedBranch(repoPath, branch, targetPath, options.runner);
   }
 

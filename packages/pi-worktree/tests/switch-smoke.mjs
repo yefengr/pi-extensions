@@ -39,15 +39,26 @@ loaded.runtime.sendUserMessage = (...args) => dispatches.push(args);
 let switches = 0;
 let offered = [];
 let select = () => undefined;
+const statuses = new Map();
+const progress = [];
 const ctx = {
+  hasUI: true,
   cwd: main, mode: "tui", isIdle: () => true, waitForIdle: async () => {},
   sessionManager: { getSessionFile: () => sourceSession },
   ui: {
+    setStatus(key, text) {
+      if (text === undefined) statuses.delete(key);
+      else { statuses.set(key, text); progress.push(text); }
+    },
     notify: (text) => notices.push(text),
-    select: async (_title, options) => { offered = options; return select(options); },
+    select: async (_title, options) => {
+      assert.equal(statuses.size, 0, "选择器打开前加载状态应结束");
+      offered = options; return select(options);
+    },
   },
   async switchSession(file, options) {
     switches++;
+    assert.ok([...statuses.values()].some((text) => /正在切换到/.test(text)));
     const header = JSON.parse(readFileSync(file, "utf8").split("\n")[0]);
     assert.equal(header.parentSession, sourceSession);
     await options.withSession({ cwd: header.cwd, ui: ctx.ui, sendMessage: () => { throw new Error("手动切换不能续跑"); } });
@@ -114,6 +125,10 @@ for (const target of [main, managed]) {
   assert.equal(switches, before + 1);
 }
 assert.deepEqual(messages, []);
+assert.equal(statuses.size, 0);
+for (const phase of ["正在加载工作树", "正在检查切换目标", "正在切换到", "正在检查迁移目标"]) {
+  assert.ok(progress.some((text) => text.includes(phase)), phase);
+}
 console.log(JSON.stringify({ choices: offered, switches, shortcut: dispatches[0], notices }, null, 2));
 
 function addWorktree(name, owned, detached = false) {

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -35,8 +36,11 @@ const tool = (name) => {
   if (!registered) throw new Error(`工具未注册：${name}`);
   return registered.definition;
 };
+let uiStatusCalls = 0;
 const context = {
   cwd: realpathSync(repo),
+  mode: "json", hasUI: false,
+  ui: { setStatus() { uiStatusCalls++; } },
   sessionManager: { getSessionFile: () => undefined },
 };
 const updates = [];
@@ -84,13 +88,22 @@ if (!listedResult.content[0].text.includes("创建：") || !listedResult.content
   throw new Error("工具列表未显示时间");
 }
 
+const removeUpdates = [];
 const removedResult = await tool("worktree_remove").execute(
   "remove-1",
   { ...(defaultRepoPath ? {} : { repoPath: repo }), worktreePath: target, confirmed: true },
-  undefined,
-  undefined,
+  new AbortController().signal,
+  (update) => removeUpdates.push(update),
   context,
 );
+assert.ok(removeUpdates.length >= 4);
+for (const phase of ["检查", "移除", "复核", "删除关联分支"]) {
+  assert.ok(removeUpdates.some((update) => update.content[0].text.includes(`正在${phase} tool-smoke`)), phase);
+}
+for (const update of [...updates, ...removeUpdates]) {
+  assert.equal(update.details, undefined);
+  assert.match(update.content[0].text, /已耗时 \d+ 秒/);
+}
 if (removedResult.details.branchStatus !== "deleted") throw new Error("工具默认未删除分支");
 if (runGit(repo, "branch", "--list", "feat/tool-smoke").trim()) {
   throw new Error("工具移除后分支仍存在");
@@ -107,6 +120,15 @@ const keptResult = await tool("worktree_create").execute(
   context,
 );
 const keptTarget = keptResult.details.worktreePath;
+const aborted = new AbortController();
+aborted.abort();
+let abortedUpdates = 0;
+await assert.rejects(tool("worktree_remove").execute(
+  "remove-aborted", { repoPath: repo, worktreePath: keptTarget, confirmed: true },
+  aborted.signal, () => { abortedUpdates++; }, context,
+));
+assert.equal(abortedUpdates, 0);
+assert.ok(runGit(repo, "worktree", "list", "--porcelain").includes(keptTarget));
 writeFileSync(path.join(keptTarget, "feature.txt"), "committed\n");
 runGit(keptTarget, "add", "feature.txt");
 runGit(keptTarget, "commit", "-qm", "feature");
@@ -122,6 +144,7 @@ if (!runGit(repo, "branch", "--list", "feat/tool-keep").includes("feat/tool-keep
   throw new Error("工具 keepBranch=true 后分支不存在");
 }
 
+assert.equal(uiStatusCalls, 0, "无 UI 工具不应访问终端状态");
 console.log(JSON.stringify({
   tools: [...extension.tools.keys()],
   defaultRepoPath,
