@@ -78,7 +78,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@earendil-works/pi-ai": "1.4.0",
-    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "@earendil-works/pi-tui": "1.4.0",
     "@types/node": "22.19.15",
     "rollup": "4.64.12",
