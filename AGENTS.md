@@ -10,6 +10,7 @@
 | `packages/pi-monitor` | 后台命令监听与一次性/持续检查 |
 | `packages/pi-task-efficiency` | 任务效率复盘、固定范围确认与确定性指标 |
 | `packages/pi-subagents` | 进程内子代理运行时，含后台执行、steering、resume 与生命周期事件 |
+| `packages/pi-worktree` | Pi 管理的 Git 工作树、持久会话迁移与自动续跑 |
 | `scripts/` | 发布计划、产物校验、GitHub Release 和文档链接检查 |
 | `.github/workflows/` | CI、npm 待审发布、发布后创建 Release |
 

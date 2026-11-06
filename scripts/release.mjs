@@ -10,6 +10,7 @@ export const PACKAGES = Object.freeze([
   { directory: "pi-monitor", name: "@yefengr/pi-monitor" },
   { directory: "pi-task-efficiency", name: "@yefengr/pi-task-efficiency" },
   { directory: "pi-subagents", name: "@yefengr/pi-subagents" },
+  { directory: "pi-worktree", name: "@yefengr/pi-worktree" },
 ].map(Object.freeze));
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const REGISTRY = "https://registry.npmjs.org";

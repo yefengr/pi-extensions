@@ -10,6 +10,7 @@
 | [`@yefengr/pi-monitor`](./packages/pi-monitor) | Background command monitoring with one-shot or continuous checks, notification-only or explained delivery | Published |
 | [`@yefengr/pi-task-efficiency`](./packages/pi-task-efficiency) | Task efficiency review with scope confirmation, deterministic metrics, and actionable suggestions | Published |
 | [`@yefengr/pi-subagents`](./packages/pi-subagents) | In-process subagent runtime with background execution, steering, resume, and lifecycle events | Published |
+| [`@yefengr/pi-worktree`](./packages/pi-worktree) | Managed Git worktrees, persistent session migration, and one-time task continuation | [npm](https://www.npmjs.com/package/@yefengr/pi-worktree) |
 
 ## Install
 
@@ -30,7 +31,7 @@ pi remove npm:@yefengr/pi-monitor
 
 Naming is layered: the capability root stays fixed, while each layer uses the word shape that matches its role.
 
-1. Capability root: one stable word or phrase per extension, such as `notify`, `monitor`, `task-efficiency`, or `subagents`. Never abbreviate it or replace it with a synonym (`efficiency` for `task-efficiency`, `agent` for `subagents`).
+1. Capability root: one stable word or phrase per extension, such as `notify`, `monitor`, `task-efficiency`, `subagents`, or `worktree`. Never abbreviate it or replace it with a synonym (`efficiency` for `task-efficiency`, `agent` for `subagents`).
 2. Package: `@yefengr/pi-<capability>`. Plural is allowed when the capability is a set.
 3. Command: `<capability>`. Multiple commands use `<capability>:<action>`.
 4. Tool: `<capability>`, `<capability>_<action>`, or `<capability>_<object>`. Use the singular capability form when one call operates on a single element.
@@ -45,6 +46,7 @@ Every visible difference follows from these rules; there are no exceptions.
 | monitor | `pi-monitor` | `monitor` | `monitor` | `.pi/logs/monitor` | `wait-monitor` |
 | task-efficiency | `pi-task-efficiency` | `task-efficiency` | `task_efficiency_*` | `task-efficiency:*` | `analyze-task-efficiency` |
 | subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | `orchestrate-subagents` |
+| worktree | `pi-worktree` | `worktree:*` | `worktree_*` | `worktree:message` | — |
 
 ## Development
 
@@ -87,7 +89,7 @@ Releases use manual semantic versioning and npm Trusted Publishing (GitHub Actio
 
 ### One-time npm setup
 
-Configure a Trusted Publisher on npmjs.com for **each** of the four published packages:
+Configure a Trusted Publisher on npmjs.com for **each** package being published (including new packages before their first release):
 
 - Provider: GitHub Actions
 - Owner: `yefengr`
