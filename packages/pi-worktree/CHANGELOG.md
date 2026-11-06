@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Prepare a patch release for the configured GitHub Actions trusted-publishing workflow with npm provenance.
+- Keep runtime behavior, command names, and existing worktree data unchanged.
+
 ## 0.1.0
 
 - Package the existing managed-worktree extension as `@yefengr/pi-worktree`.
