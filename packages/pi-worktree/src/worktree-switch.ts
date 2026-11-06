@@ -3,6 +3,7 @@ import { realpath } from "node:fs/promises";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { listWorktrees, resolveMigrationTarget, type CommandRunner } from "./core.ts";
 import { migratePersistentSession, type SessionForker } from "./session.ts";
+import { createWorktreeProgress, type WorktreeProgress } from "./worktree-progress.ts";
 
 export interface WorkspaceChoice {
   path: string;
@@ -36,6 +37,7 @@ export function registerWorktreeSwitch(
   forker: SessionForker,
   withMutationLock: <T>(operation: () => Promise<T>) => Promise<T>,
   reportError: (error: unknown) => void,
+  progress: WorktreeProgress = createWorktreeProgress(pi),
 ): void {
   pi.registerCommand("worktree:switch", {
     description: "通过列表切换到当前仓库的主工作区或 Pi 管理工作树",
@@ -47,23 +49,29 @@ export function registerWorktreeSwitch(
         }
         const parsed = parseSwitchInput(args);
         if (!parsed && ctx.mode !== "tui") throw new Error("当前模式不能显示选择列表，请向 /worktree:switch 传入 JSON worktreePath");
-        const choices = await collectWorkspaceChoices(ctx.cwd, runner);
-        if (parsed?.repoPath !== undefined) {
-          const requested = await listWorktrees(parsed.repoPath, runner);
-          if (requested.repoPath !== choices[0].path) throw new Error("只能切换当前仓库的工作空间");
-        }
+        const choices = await progress.run(ctx, "正在加载工作树…", async () => {
+          const loaded = await collectWorkspaceChoices(ctx.cwd, runner);
+          if (parsed?.repoPath !== undefined) {
+            const requested = await listWorktrees(parsed.repoPath, runner);
+            if (requested.repoPath !== loaded[0].path) throw new Error("只能切换当前仓库的工作空间");
+          }
+          return loaded;
+        });
         const selectedPath = parsed?.worktreePath ?? await selectWorkspace(ctx, choices);
         if (!selectedPath) return;
-        const target = await resolveMigrationTarget(choices[0].path, selectedPath, { runner, allowMainWorktree: true });
-        if (await realpath(ctx.cwd) === target.worktreePath) return;
-        await ctx.waitForIdle();
-        await withMutationLock(async () => {
-          const migration = await migratePersistentSession(
-            ctx, target.worktreePath,
-            forker,
-            `Pi 会话已切换到 ${target.worktreePath}\n分支：${target.record.branch ?? "detached HEAD"}`,
-          );
-          if (migration.status === "unavailable") ctx.ui.notify("当前会话未持久化，无法切换工作空间；原会话保持不变", "warning");
+        await progress.run(ctx, "正在检查切换目标…", async (operation) => {
+          const target = await resolveMigrationTarget(choices[0].path, selectedPath, { runner, allowMainWorktree: true });
+          if (await realpath(ctx.cwd) === target.worktreePath) return;
+          operation.update(`正在切换到 ${path.basename(target.worktreePath)}…`);
+          await ctx.waitForIdle();
+          await withMutationLock(async () => {
+            const migration = await migratePersistentSession(
+              ctx, target.worktreePath,
+              forker,
+              `Pi 会话已切换到 ${target.worktreePath}\n分支：${target.record.branch ?? "detached HEAD"}`,
+            );
+            if (migration.status === "unavailable") ctx.ui.notify("当前会话未持久化，无法切换工作空间；原会话保持不变", "warning");
+          });
         });
       } catch (error) {
         reportError(error);

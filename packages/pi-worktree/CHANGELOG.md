@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Show temporary native progress during worktree creation, switching, migration, and removal, including actual elapsed time and batch target counts.
+- Report removal stages through tool updates even without UI support, while preserving final structured results and existing safety checks.
+- Clear progress on completion, failure, cancellation, and session replacement without updating stale UI contexts.
+
 ## 0.1.1
 
 - Prepare a patch release for the configured GitHub Actions trusted-publishing workflow with npm provenance.
