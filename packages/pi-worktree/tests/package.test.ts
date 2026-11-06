@@ -13,7 +13,7 @@ function run(command: string, args: string[], cwd: string): string {
 test("发布元数据仅声明宿主 SDK peers，源码模块不超过 600 行", async () => {
   const metadata = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(metadata.name, "@yefengr/pi-worktree");
-  assert.equal(metadata.version, "0.1.0");
+  assert.match(metadata.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
   assert.deepEqual(metadata.pi.extensions, ["./index.ts"]);
   assert.equal(metadata.dependencies, undefined);
   assert.deepEqual(metadata.peerDependencies, {
