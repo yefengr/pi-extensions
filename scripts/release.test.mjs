@@ -32,7 +32,7 @@ test("unchanged versions skip registry even when other metadata changes", async 
   }));
   assert.equal(plan.hasPackages, false);
   assert.deepEqual(plan.matrix, { include: [] });
-  assert.equal(plan.summary.length, 4);
+  assert.equal(plan.summary.length, PACKAGES.length);
   assert.ok(plan.summary.every((line) => line.includes("version unchanged")));
 });
 
@@ -60,7 +60,7 @@ test("manual selection bypasses before comparison but still queries registry", a
   assert.match(plan.summary[0], /already public/);
 });
 
-test("manual selection is allowlisted for all four packages", () => {
+test("manual selection is allowlisted for all registered packages", () => {
   for (const entry of PACKAGES) {
     assert.deepEqual(selectPackages("workflow_dispatch", push.ref, entry.name), [entry]);
   }
@@ -113,12 +113,27 @@ test("first push queries every package without reading previous files", async ()
   const plan = await createPlan({ ...push, before: "0".repeat(40) }, dependencies({
     previousVersion: async () => assert.fail("zero before must not read git"),
   }));
-  assert.equal(plan.matrix.include.length, 4);
+  assert.equal(plan.matrix.include.length, PACKAGES.length);
 });
 
 test("new package files are candidates", async () => {
   const plan = await createPlan(push, dependencies({ previousVersion: async () => null }));
-  assert.equal(plan.matrix.include.length, 4);
+  assert.equal(plan.matrix.include.length, PACKAGES.length);
+});
+
+test("new worktree package alone becomes an initial 0.1.0 release candidate", async () => {
+  const worktree = PACKAGES.find((entry) => entry.directory === "pi-worktree");
+  assert.ok(worktree);
+  const queries = [];
+  const plan = await createPlan(push, dependencies({
+    readPackage: async (directory) => directory === worktree.directory
+      ? { name: worktree.name, version: "0.1.0" } : metadata(directory),
+    previousVersion: async (_, directory) => directory === worktree.directory ? null : "1.2.3",
+    published: async (entry) => { queries.push(entry); return false; },
+  }));
+  assert.deepEqual(plan.matrix.include, [{ ...worktree, version: "0.1.0" }]);
+  assert.deepEqual(queries, plan.matrix.include);
+  assert.equal(plan.summary.filter((line) => line.includes("version unchanged")).length, PACKAGES.length - 1);
 });
 
 test("unreadable nonzero before propagates failure", async () => {
