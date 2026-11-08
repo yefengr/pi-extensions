@@ -36,14 +36,17 @@ const server = createServer(async (request, response) => {
     requests.push(parsed);
     const step = requests.length;
     assert.ok(step <= 3, `自动继续重复触发模型：第 ${step} 次请求`);
+    if (step === 2) {
+      const target = path.join(fixture, "worktrees", targetName);
+      writeFileSync(path.join(target, "fixture-location.txt"),
+        `cwd=${realpathSync.native(target)}\nbranch=${git(target, "branch", "--show-current").trim()}\n`);
+    }
     const delta = step === 1
       ? toolDelta("fixture-create", "worktree_create", {
           name: targetName, mode: "new-branch", baseRef: "main", branch: targetBranch,
         })
       : step === 2
-        ? toolDelta("fixture-pwd", "bash", {
-            command: "pwd; git rev-parse --show-toplevel; git branch --show-current",
-          })
+        ? toolDelta("fixture-cwd", "read", { path: "fixture-location.txt" })
         : { role: "assistant", content: completion };
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
     const frame = (value) => response.write(`data: ${JSON.stringify(value)}\n\n`);
@@ -72,8 +75,8 @@ async function main() {
   writeFileSync(path.join(repo, "README.md"), "isolated synthetic fixture\n");
   git(repo, "add", "README.md");
   git(repo, "commit", "-qm", "fixture");
-  const sourceCwd = realpathSync(repo);
-  const targetCwd = path.join(realpathSync(fixture), "worktrees", targetName);
+  const sourceCwd = realpathSync.native(repo);
+  const targetCwd = path.join(realpathSync.native(fixture), "worktrees", targetName);
   writeFileSync(sourceSession, `${JSON.stringify({
     type: "session", version: 3, id: "33333333-3333-7333-8333-333333333333",
     timestamp: "2026-01-01T00:00:00.000Z", cwd: sourceCwd,
@@ -108,17 +111,17 @@ async function main() {
   const migratedFile = state.data.sessionFile;
   assert.ok(migratedFile && migratedFile !== sourceSession, "模型创建后未自动切换持久会话");
   const entries = jsonLines(migratedFile);
-  assert.equal(realpathSync(entries[0].cwd), realpathSync(targetCwd));
+  assert.equal(realpathSync.native(entries[0].cwd), realpathSync.native(targetCwd));
   assert.equal(entries[0].parentSession, sourceSession);
   assert.equal(git(targetCwd, "branch", "--show-current").trim(), targetBranch);
   const creation = entries.find((entry) => entry.type === "message"
     && entry.message.role === "toolResult" && entry.message.toolName === "worktree_create");
   assert.equal(creation?.message.details?.migrationStatus, "scheduled");
   assert.equal(creation.message.isError, false);
-  const pwd = entries.find((entry) => entry.type === "message"
-    && entry.message.role === "toolResult" && entry.message.toolName === "bash");
-  assert.ok(pwd && !pwd.message.isError, "自动迁移后未继续执行内置 bash");
-  assert.equal(textOf(pwd.message.content).trim(), `${realpathSync(targetCwd)}\n${realpathSync(targetCwd)}\n${targetBranch}`);
+  const location = entries.find((entry) => entry.type === "message"
+    && entry.message.role === "toolResult" && entry.message.toolName === "read");
+  assert.ok(location && !location.message.isError, "自动迁移后未继续在目标目录执行内置 read");
+  assert.ok(textOf(location.message.content).includes(`cwd=${realpathSync.native(targetCwd)}\nbranch=${targetBranch}`));
   const humanMessages = entries.filter((entry) => entry.type === "message" && entry.message.role === "user");
   assert.equal(humanMessages.length, 1, "自动交接不应伪造人类输入");
   assert.ok(textOf(humanMessages[0].message.content).includes(prompt));
@@ -126,11 +129,11 @@ async function main() {
     && entry.customType === "worktree:message" && textOf(entry.content).includes("继续"));
   assert.equal(continuations.length, 1, "自动交接必须仅触发一次扩展继续消息");
   assert.equal(requests.length, 3);
-  assert.ok(JSON.stringify(requests[1].messages).includes(targetCwd), "继续任务请求缺少新目录上下文");
+  assert.ok(requests[1].messages.some((message) => textOf(message.content).includes(targetCwd)), "继续任务请求缺少新目录上下文");
   assert.ok(rpc.records.some((record) => record.method === "notify"
     && textOf(record.message).includes(targetCwd)), "未收到新会话目录验证后的成功通知");
   const footerAfterAuto = await renderFooter(migratedFile, targetBranch);
-  assert.ok(footerAfterAuto.includes(targetCwd), `默认状态栏未显示目标目录：${footerAfterAuto}`);
+  assert.ok(footerAfterAuto.includes(await footerCwd(targetCwd)), `默认状态栏未显示目标目录：${footerAfterAuto}`);
   assert.ok(footerAfterAuto.includes(targetBranch));
 
   // JSON 仅用于 RPC 自动验证；用户入口由无参命令/快捷键打开选择列表。
@@ -140,10 +143,10 @@ async function main() {
   const back = await rpc.request("get_state");
   assert.notEqual(back.data.sessionFile, migratedFile, "无法从工作树返回主工作区");
   const backHeader = jsonLines(back.data.sessionFile)[0];
-  assert.equal(realpathSync(backHeader.cwd), sourceCwd);
+  assert.equal(realpathSync.native(backHeader.cwd), sourceCwd);
   assert.equal(backHeader.parentSession, migratedFile);
   const footerAfterBack = await renderFooter(back.data.sessionFile, "main");
-  assert.ok(footerAfterBack.includes(sourceCwd));
+  assert.ok(footerAfterBack.includes(await footerCwd(sourceCwd)));
   assert.equal(requests.length, 3, "手动切换不应触发模型");
   await rpc.request("prompt", { message: `/worktree:switch ${JSON.stringify({
     repoPath: sourceCwd, worktreePath: sourceCwd,
@@ -185,9 +188,7 @@ function toolDelta(id, name, args) {
 
 async function renderFooter(sessionFile, branch) {
   const { SessionManager } = await import(pathToFileURL(piPackage).href);
-  const { FooterComponent } = await import(pathToFileURL(path.join(
-    path.dirname(piPackage), "modes", "interactive", "components", "footer.js",
-  )).href);
+  const { FooterComponent } = await import(footerModule());
   const themeModule = await import(pathToFileURL(path.join(
     path.dirname(piPackage), "modes", "interactive", "theme", "theme.js",
   )).href);
@@ -202,6 +203,18 @@ async function renderFooter(sessionFile, branch) {
     getExtensionStatuses: () => new Map(),
   });
   return footer.render(4096)[0].replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+// 状态栏按宿主 home 缩写目录；断言复用生产实现而不是假定未缩写路径。
+async function footerCwd(cwd) {
+  const { formatCwdForFooter } = await import(footerModule());
+  return formatCwdForFooter(cwd, process.env.HOME || process.env.USERPROFILE);
+}
+
+function footerModule() {
+  return pathToFileURL(path.join(
+    path.dirname(piPackage), "modes", "interactive", "components", "footer.js",
+  )).href;
 }
 
 function deadline(promise, timeoutMs, label) {

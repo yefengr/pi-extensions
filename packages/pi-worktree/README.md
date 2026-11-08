@@ -4,7 +4,7 @@ Create and manage Git linked worktrees from Pi, move the current persistent sess
 
 ## Requirements and installation
 
-Requires **Pi >= 1.5.0**, Node.js >= 22.19.0, Git, and Bash on macOS or Linux. Pi supplies the runtime SDK; this package does not bundle another copy.
+Targets **Windows 10/11**, macOS, and Linux with **Pi >= 1.5.0**, Node.js >= 22.19.0, and Git available on PATH. Creation, listing, switching, migration, and safe removal use native Node.js APIs and Git argv calls, without a Shell creator or additional runtime dependencies. Bash is needed only for optional project setup hooks on macOS/Linux. Pi supplies the runtime SDK; this package does not bundle another copy.
 
 ```bash
 pi install npm:@yefengr/pi-worktree
@@ -54,11 +54,15 @@ TUI displays these statuses in the footer; RPC receives native status updates wh
 - `existing-branch`: requires `branch`; do not supply `baseRef`.
 - `detached`: requires `baseRef`; do not supply `branch`.
 
-Names contain lowercase letters, digits, and single hyphens, with a maximum length of 40 characters. Worktrees live in `worktrees` beside the agent directory: the default is `~/.pi/worktrees`, **not** `~/.pi/agent/worktrees`. An absolute `PI_CODING_AGENT_DIR` changes the agent directory; its parent determines the worktree root. A leading literal `~` is expanded.
+Names contain lowercase letters, digits, and single hyphens, with a maximum length of 40 characters. On Windows, device names such as `con`, `nul`, `com1`–`com9`, and `lpt1`–`lpt9` are rejected. Worktrees live in `worktrees` beside the agent directory: the default is `~/.pi/worktrees`, **not** `~/.pi/agent/worktrees`. An absolute `PI_CODING_AGENT_DIR` changes the agent directory; its parent determines the worktree root. A leading literal `~` is expanded.
 
 ### Project setup hooks
 
-If the source repository contains `.pi/worktree/setup.sh`, creation requires explicit approval. The creator invokes it with `before-create` and `after-create` stages. Approval is bound to the inspected script content; review the file and any symlink target before approving it. TUI creation shows its path, resolved path, and content identifier. JSON/tool calls must set `setupHookApproved: true` only after that review.
+**Windows does not support `.pi/worktree/setup.sh`.** If this path exists in the source repository, creation reports an explicit error before creating the worktree root, branch, or worktree, and before running any hook. Approval does not override this restriction; the hook is never silently skipped and Bash is not located or executed on Windows.
+
+On macOS/Linux, if the source repository contains `.pi/worktree/setup.sh`, creation requires explicit approval. The creator invokes it with `before-create` and `after-create` stages. Approval is bound to the inspected script content; review the file and any symlink target before approving it. TUI creation shows its path, resolved path, and content identifier. JSON/tool calls must set `setupHookApproved: true` only after that review.
+
+Each hook runs in the source directory (`before-create`) or target directory (`after-create`), with the resolved absolute `PI_CODING_AGENT_DIR`, the stage argument, and `PI_WORKTREE_PHASE`, `PI_WORKTREE_SOURCE_ROOT`, `PI_WORKTREE_TARGET`, `PI_WORKTREE_BASE`, `PI_WORKTREE_BRANCH`, `PI_WORKTREE_NAME`, and `PI_WORKTREE_MODE` environment variables. The resolved file and content are checked again before each stage. Hook output is discarded; each stage has a two-minute timeout, and cancellation terminates its POSIX process group.
 
 A failure after creation can leave the worktree for diagnosis; the error identifies its path and stage. Hook output is not echoed into the conversation, to avoid exposing sensitive output. A failed initialization does not migrate the session.
 
@@ -97,7 +101,7 @@ npm test -w @yefengr/pi-worktree
 npm pack --dry-run -w @yefengr/pi-worktree
 ```
 
-Tests include the migrated domain/session regressions, all creator shell cases, isolated tool/command/RPC smokes, a real Pi CLI round trip against a loopback-only synthetic model, and unpacked-tarball creation/removal. Fixtures are temporary and cleaned up; tests do not use real model credentials or user worktrees.
+Tests include the migrated domain/session regressions, native Node.js coverage of the former creator Shell cases, isolated tool/command/RPC smokes, a real Pi CLI round trip using a relative built-in `read` against a loopback-only synthetic model, and unpacked-tarball creation/removal. Windows hook tests assert early rejection rather than requiring Bash. Packaging tests require `tar` on PATH and invoke npm through Node.js plus `npm-cli.js`, not `npm.cmd`. Windows drive/UNC and junction behavior must be verified on real Windows; a passing Linux run alone is not Windows runtime evidence. Fixtures are temporary and cleaned up; tests do not use real model credentials or user worktrees.
 
 ## License
 

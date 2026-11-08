@@ -50,6 +50,8 @@ Every visible difference follows from these rules; there are no exceptions.
 
 ## Development
 
+The native Windows 10/11 implementation and remaining client validation for Monitor and Worktree are documented in the [Windows compatibility adjustment plan](./docs/plans/windows-support.md) (Chinese). Monitor uses best-effort Windows process cleanup; Worktree's core needs no Bash, and Windows projects with `setup.sh` are rejected before creation.
+
 ```bash
 npm install
 npm run verify       # typecheck + lint + tests + doc links + packed contents
@@ -60,7 +62,7 @@ npm run test:contracts # real producer-to-consumer compatibility checks
 npm run check:docs
 ```
 
-Use the Node version from `.node-version` for development (for example `nvm use` or `fnm use`). Node 22.19 remains the minimum supported version. `npm run verify` is the same entry point CI uses; CI runs it on both the `.node-version` runtime and Node 22.19, the minimum version declared in `engines`. Verify a single package:
+Use the Node version from `.node-version` for development (for example `nvm use` or `fnm use`). Node 22.19 remains the minimum supported version. `npm run verify` is the same entry point Ubuntu CI uses; CI runs it on both the `.node-version` runtime and Node 22.19, the minimum version declared in `engines`. Separate Windows Server jobs validate Monitor and Worktree on both runtimes, including real tarball smoke tests, and feed the same required `verify` gate. They do not replace Windows 10/11 client acceptance or claim Windows support for every package. Verify a single package:
 
 ```bash
 npm test -w @yefengr/pi-monitor
@@ -109,7 +111,7 @@ npm version patch --workspace @yefengr/pi-notify --no-git-tag-version
 
 Commit the updated `package.json` and `package-lock.json`, then push to `main`. The workflow compares versions with the push's previous commit and checks the exact versions on the npm registry. Already-public versions are skipped; registry errors stop the workflow rather than being treated as unpublished versions.
 
-For unpublished candidates, the reusable CI checks run on both the `.node-version` runtime and Node 22.19, the minimum supported version. Each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) then run on the `.node-version` runtime. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
+For unpublished candidates, the reusable CI checks run the complete Ubuntu suite and the Monitor/Worktree Windows jobs on both the `.node-version` runtime and Node 22.19, the minimum supported version. Each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) then run on the `.node-version` runtime. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
 
 After a successful staging run, a `tag` job creates the annotated tag `<package-directory>-v<version>` (for example `pi-notify-v0.3.4`) on the release commit. It holds only `contents: write`, separately from the `id-token: write` used by the staging job. If the job fails, create an annotated tag at that commit by hand; do not rerun the release workflow, because that would stage the same version again. The scheduled release workflow creates the GitHub Release after npm approval.
 

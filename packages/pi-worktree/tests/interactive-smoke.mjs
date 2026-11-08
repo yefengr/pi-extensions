@@ -41,7 +41,7 @@ async function runScenario(fixture, scenario) {
       schemaVersion: 1,
       createdAt: new Date(Date.now() - index * 60_000).toISOString(),
     }));
-    return realpathSync(target);
+    return realpathSync.native(target);
   });
   if (scenario === "preflight-reject") {
     writeFileSync(path.join(paths[1], "feature.txt"), "committed\n");
@@ -50,7 +50,7 @@ async function runScenario(fixture, scenario) {
   }
 
   process.env.PI_CODING_AGENT_DIR = agentDir;
-  const loaded = await discoverAndLoadExtensions([extensionPath], realpathSync(repo), path.join(fixture, "empty-agent"));
+  const loaded = await discoverAndLoadExtensions([extensionPath], realpathSync.native(repo), path.join(fixture, "empty-agent"));
   if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
   const messages = [];
   loaded.runtime.sendMessage = (message) => messages.push(message.content);
@@ -61,7 +61,7 @@ async function runScenario(fixture, scenario) {
   const statuses = new Map();
   const progress = [];
   const context = {
-    cwd: realpathSync(repo),
+    cwd: realpathSync.native(repo),
     mode: "tui",
     hasUI: true,
     ui: {

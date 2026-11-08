@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { eventually, piCliPath } from "./helpers.ts";
+import { eventually, isolatedEnvironment, piCliPath } from "./helpers.ts";
 
 // 隔离 HOME/agent 目录且仅使用 notify，不读取真实认证、不发起模型请求。
 test("real RPC: start/resume without confirmation, once/continuous, reload and session isolation", { timeout: 30_000 }, async (t) => {
@@ -31,7 +31,7 @@ test("real RPC: start/resume without confirmation, once/continuous, reload and s
     cli, "--offline", "--mode", "rpc", "--session", session,
     "-ne", "-ns", "-np", "-nc", "--no-themes", "--no-mcp", "-e",
     fileURLToPath(new URL("../index.ts", import.meta.url)), "-e", reload,
-  ], { cwd: root, env: { PATH: process.env.PATH, HOME: root, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "pipe"] });
+  ], { cwd: root, env: isolatedEnvironment(root, agent), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   const exit = new Promise<number | null>((resolve) => child.once("exit", resolve));
   let exited = false;
   child.once("exit", () => { exited = true; });
@@ -81,7 +81,12 @@ test("real RPC: start/resume without confirmation, once/continuous, reload and s
   assert.ok(commands.commands.some((item: any) => item.name === "monitor"));
   await start("once");
   await eventually(() => events.some((event) => event.method === "notify" && event.message.includes("个新事件")), 5_000);
-  let tasks = await states();
+  let tasks: any[] = [];
+  // UI 通知先于回执核验；等待实际保存的 ACK，不把通知当成落盘完成。
+  await eventually(async () => {
+    tasks = await states();
+    return tasks[0]?.status === "completed" && tasks[0]?.pending.length === 0;
+  }, 5_000);
   assert.equal(tasks[0].status, "completed");
   assert.equal(tasks[0].pending.length, 0);
   const logDir = path.join(root, ".pi", "logs", "monitor");

@@ -1,6 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { realpath } from "node:fs/promises";
-import path from "node:path";
+import { samePath } from "./worktree-paths.ts";
 
 export interface SessionMigrationResult {
   status: "migrated" | "unavailable";
@@ -113,7 +113,7 @@ async function verifyReplacementContext(
   expectedCwd: string,
 ): Promise<void> {
   const replacementCwd = await realpath(ctx.cwd);
-  if (path.resolve(replacementCwd) !== path.resolve(expectedCwd)) {
+  if (!samePath(replacementCwd, expectedCwd)) {
     throw new Error(`替换会话 cwd 不匹配：${replacementCwd}`);
   }
 }

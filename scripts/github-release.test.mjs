@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { PACKAGES } from "./release.mjs";
 import { createRelease, createTag, generateNotes, runCli } from "./github-release.mjs";
@@ -183,7 +184,7 @@ test("registry 200 creates verified current release with notes and latest", asyn
   assert.equal((await createRelease(DIRECTORY, undefined, f.deps)).status, "created");
   assert.deepEqual(mutations(f.calls), [["gh", [
     "release", "create", TAG, "--repo", "owner/repository", "--verify-tag", "--title", `${DIRECTORY} ${VERSION}`,
-    "--notes-file", `/runner/temporary/${TAG}.md`, "--latest",
+    "--notes-file", path.join("/runner/temporary", `${TAG}.md`), "--latest",
   ]]]);
   assert.match(f.writes[0][1], /https:\/\/www.npmjs.com\/package\/@yefengr\/pi-notify\/v\/1.2.3/);
   assert.match(f.writes[0][1], /actions\/runs\/123/);

@@ -109,6 +109,7 @@ test("超过单文件上限时轮转并保留有界备份", async () => {
 });
 
 test("写入失败只提醒一次，不影响后续调用", async (t) => {
+  if (process.platform === "win32") return t.skip("Windows 的 chmod 不提供 POSIX 目录只读权限；写入失败另有跨平台故障测试");
   if (process.getuid?.() === 0) return t.skip("root 用户不受目录权限限制");
   const cwd = tempDir();
   const notices: string[] = [];
@@ -119,6 +120,22 @@ test("写入失败只提醒一次，不影响后续调用", async (t) => {
   task.cwd = blockedRoot;
   chmodSync(blockedRoot, 0o500);
   t.after(() => chmodSync(blockedRoot, 0o700));
+  logger.write(task, { action: "check" });
+  await logger.flush();
+  logger.write(task, { action: "check" });
+  await logger.flush();
+  assert.equal(notices.length, 1);
+  assert.match(notices[0], /日志写入失败/);
+});
+
+test("日志目录被同名文件阻塞时跨平台只提醒一次", async (t) => {
+  const cwd = tempDir();
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  mkdirSync(path.join(cwd, ".pi"));
+  writeFileSync(path.join(cwd, ".pi", "logs"), "not a directory");
+  const notices: string[] = [];
+  const logger = new MonitorLogger((message) => notices.push(message));
+  const task = definition({ cwd, id: "task-file-deny", name: "文件阻塞", logLevel: "info" });
   logger.write(task, { action: "check" });
   await logger.flush();
   logger.write(task, { action: "check" });
