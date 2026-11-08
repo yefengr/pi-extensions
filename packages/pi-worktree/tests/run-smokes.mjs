@@ -19,7 +19,6 @@ const scenarios = [
 ];
 
 try {
-  run("bash", [path.join(root, "tests/create-worktree.integration.sh")], {});
   for (const [index, [file, args = [], extra = {}]] of scenarios.entries()) {
     const fixture = path.join(sandbox, String(index));
     mkdirSync(fixture);

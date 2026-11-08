@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { listWorktrees, type CommandRunner } from "../src/core.ts";
 import { collectWorkspaceChoices, registerWorktreeSwitch } from "../src/worktree-switch.ts";
+import { samePath } from "../src/worktree-paths.ts";
 
 test("隔离 Git 工作区的 canonical 选择、嵌套归属与精确 cwd 切换", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "workspace-switch-"));
@@ -32,7 +33,7 @@ test("隔离 Git 工作区的 canonical 选择、嵌套归属与精确 cwd 切�
     await writeFile(path.join(gitDir, "pi-worktree-manager.json"), JSON.stringify({
       schemaVersion: 1, createdAt: new Date().toISOString(),
     }));
-    await symlink(linked, alias, "dir");
+    await symlink(linked, alias, process.platform === "win32" ? "junction" : "dir");
     await mkdir(path.join(repo, "src"));
     await mkdir(path.join(linked, "src"));
     process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -54,7 +55,8 @@ test("隔离 Git 工作区的 canonical 选择、嵌套归属与精确 cwd 切�
     await t.test("仅选择 helper 归一化登记路径别名，公共 list 保持原路径", async () => {
       const aliasRunner: CommandRunner = { async run(command, args, options) {
         const result = await runner.run(command, args, options);
-        if (args.includes("--porcelain")) result.stdout = result.stdout.replace(`worktree ${linkedPath}\0`, `worktree ${alias}\0`);
+        if (args.includes("--porcelain")) result.stdout = result.stdout.split("\0").map((token) =>
+          token.startsWith("worktree ") && samePath(token.slice(9), linkedPath) ? `worktree ${alias}` : token).join("\0");
         return result;
       } };
       assert.equal((await listWorktrees(repo, aliasRunner)).worktrees[0].path, alias);

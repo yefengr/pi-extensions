@@ -1,4 +1,4 @@
-import path from "node:path";
+export { isStrictlyWithin } from "./worktree-paths.ts";
 import type { WorktreeRecord } from "./worktree-types.ts";
 
 export function parseWorktreePorcelain(output: string): WorktreeRecord[] {
@@ -47,14 +47,4 @@ export function parseWorktreePorcelain(output: string): WorktreeRecord[] {
 
   if (current) records.push(current);
   return records;
-}
-
-export function isStrictlyWithin(parent: string, candidate: string): boolean {
-  const relative = path.relative(parent, candidate);
-  return (
-    relative.length > 0 &&
-    relative !== ".." &&
-    !relative.startsWith(`..${path.sep}`) &&
-    !path.isAbsolute(relative)
-  );
 }

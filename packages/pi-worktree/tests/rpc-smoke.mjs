@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const scenario = process.argv[2];
@@ -112,7 +112,8 @@ const { records, finalState } = await driveRpc(piArgs, promptMessage, expectErro
 
 let target;
 let targetBranch;
-if (createScenarios.has(scenario)) {
+const windowsHookRejection = scenario === "after-failure" && process.platform === "win32";
+if (createScenarios.has(scenario) && !windowsHookRejection) {
   target = realpathSync(path.join(path.dirname(agentDir), "worktrees", targetName));
   targetBranch = runGit(target, "branch", "--show-current").trim();
   if (targetBranch !== branch) throw new Error(`目标分支不匹配：${targetBranch}`);
@@ -134,8 +135,12 @@ if (scenario === "persistent" || scenario === "default-repo-path") {
   console.log(JSON.stringify({ scenario, sourceCwd: repoReal, targetCwd: target, sessionFile: null, notice }, null, 2));
 } else if (scenario === "after-failure") {
   if (finalState.data.sessionFile !== sourceSession) throw new Error("after-create 失败后会话不应切换");
-  const errorText = findText(records, "after-create 阶段失败");
-  if (!errorText) throw new Error(`缺少 after-create 失败提示：${records.map(JSON.stringify).join("\n")}`);
+  const errorText = findText(records, windowsHookRejection ? "Windows 不支持项目工作树钩子" : "after-create 阶段失败");
+  if (!errorText) throw new Error(`缺少钩子失败提示：${records.map(JSON.stringify).join("\n")}`);
+  if (windowsHookRejection) {
+    if (existsSync(path.join(path.dirname(agentDir), "worktrees"))) throw new Error("拒绝 Windows 钩子之前产生了工作树目录");
+    if (runGit(repo, "branch", "--list", branch).trim()) throw new Error("拒绝 Windows 钩子之前创建了分支");
+  }
   console.log(JSON.stringify({ scenario, sourceCwd: repoReal, retainedWorktree: target, sessionFile: finalState.data.sessionFile, errorText }, null, 2));
 } else if (removeScenarios.has(scenario)) {
   const notice = findText(records, "工作树已移除：");

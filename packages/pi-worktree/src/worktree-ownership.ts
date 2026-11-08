@@ -1,7 +1,7 @@
 import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { CommandRunner, WorktreeRecord } from "./worktree-types.ts";
-import { isStrictlyWithin } from "./worktree-utils.ts";
+import { isStrictlyWithin, samePath } from "./worktree-paths.ts";
 
 export const OWNERSHIP_MARKER_FILENAME = "pi-worktree-manager.json";
 const OWNERSHIP_MARKER_SCHEMA_VERSION = 1;
@@ -112,8 +112,4 @@ function compareOwnedWorktrees(left: WorktreeRecord, right: WorktreeRecord): num
   if (leftTime !== rightTime) return rightTime - leftTime;
   if (left.path === right.path) return 0;
   return left.path < right.path ? -1 : 1;
-}
-
-function samePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
 }

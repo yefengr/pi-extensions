@@ -1,17 +1,19 @@
-import { lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { realpath } from "node:fs/promises";
+import { executeCreatePlan } from "./worktree-create.ts";
+import { inspectSetupHook } from "./worktree-hook.ts";
+import { isWindowsReservedName } from "./worktree-paths.ts";
 import path from "node:path";
 import { isStrictlyWithin } from "./worktree-utils.ts";
 import { collectOwnedWorktrees, readOwnershipMarker } from "./worktree-ownership.ts";
 import { WORKTREE_MODES, WorktreeError } from "./worktree-types.ts";
 import type {
   CommandRunner, CreateWorktreeInput, CreateWorktreeResult, ListWorktreesResult,
-  MigrationTarget, WorktreeRecord, WorktreeStage,
+  MigrationTarget, WorktreeRecord,
 } from "./worktree-types.ts";
 import {
   type DomainOptions, findRegisteredWorktree, normalizeRequiredString, pathExists,
-  readWorktreeRecords, resolveAgentDir, resolveExistingWorktreeRoot, resolveRepository,
-  resolveWorktreeRoot, runChecked, samePath,
+  readWorktreeRecords, resolveExistingWorktreeRoot, resolveRepository,
+  resolveWorktreeRoot, samePath,
 } from "./worktree-repository.ts";
 
 export { isStrictlyWithin, parseWorktreePorcelain } from "./worktree-utils.ts";
@@ -30,9 +32,8 @@ const WORKTREE_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_WORKTREE_NAME_LENGTH = 40;
 const DEFAULT_BASE_REF = "HEAD";
 const SETUP_HOOK_PARTS = [".pi", "worktree", "setup.sh"] as const;
-const CREATOR_STATE_PREFIX = "pi-worktree-manager-";
 
-export function validateCreateInput(input: CreateWorktreeInput): Required<
+export function validateCreateInput(input: CreateWorktreeInput, platform: NodeJS.Platform = process.platform): Required<
   Pick<CreateWorktreeInput, "repoPath" | "name" | "mode">
 > & Pick<CreateWorktreeInput, "baseRef" | "branch" | "setupHookApproved"> {
   const repoPath = normalizeRequiredString(input.repoPath, "repoPath");
@@ -47,6 +48,10 @@ export function validateCreateInput(input: CreateWorktreeInput): Required<
   }
   if (name.length > MAX_WORKTREE_NAME_LENGTH) {
     throw new WorktreeError(`工作树名称不得超过 ${MAX_WORKTREE_NAME_LENGTH} 个字符`, "validation");
+  }
+
+  if (isWindowsReservedName(name, platform)) {
+    throw new WorktreeError(`Windows 工作树名称不能使用设备保留名：${name}`, "validation");
   }
 
   const baseRef = normalizeOptionalString(input.baseRef);
@@ -77,8 +82,9 @@ export async function inspectCreateRequest(
   setupHookResolvedPath?: string;
   setupHookBlobId?: string;
 }> {
-  const validated = validateCreateInput(input);
+  const validated = validateCreateInput(input, options.platform);
   const repository = await resolveRepository(validated.repoPath, options.runner);
+  const hook = await inspectSetupHook(path.join(repository.sourceRoot, ...SETUP_HOOK_PARTS), options.runner, options.platform ?? process.platform);
   const worktreeRoot = await resolveWorktreeRoot(options.env, true);
   const worktreePath = path.resolve(worktreeRoot, validated.name);
 
@@ -89,35 +95,7 @@ export async function inspectCreateRequest(
     throw new WorktreeError(`目标路径已经存在：${worktreePath}`, "validation", worktreePath);
   }
 
-  const setupHookPath = path.join(repository.sourceRoot, ...SETUP_HOOK_PARTS);
-  if (!(await pathExists(setupHookPath))) {
-    return { input: validated, repoPath: repository.sourceRoot, worktreeRoot, worktreePath };
-  }
-
-  const hookStat = await lstat(setupHookPath);
-  if (!hookStat.isFile() && !hookStat.isSymbolicLink()) {
-    throw new WorktreeError(`项目工作树钩子不是普通文件：${setupHookPath}`, "validation", worktreePath);
-  }
-  let setupHookResolvedPath: string;
-  try {
-    setupHookResolvedPath = await realpath(setupHookPath);
-  } catch {
-    throw new WorktreeError(`项目工作树钩子符号链接无法解析：${setupHookPath}`, "validation", worktreePath);
-  }
-  const setupHookBlobId = (
-    await runChecked(
-      options.runner, "git", ["hash-object", setupHookPath],
-      `无法计算项目工作树钩子内容标识：${setupHookPath}`, "validation", worktreePath,
-    )
-  ).stdout.trim();
-  if (!setupHookBlobId) {
-    throw new WorktreeError("项目工作树钩子内容标识为空", "validation", worktreePath);
-  }
-
-  return {
-    input: validated, repoPath: repository.sourceRoot, worktreeRoot, worktreePath,
-    setupHookPath, setupHookResolvedPath, setupHookBlobId,
-  };
+  return { input: validated, repoPath: repository.sourceRoot, worktreeRoot, worktreePath, ...hook };
 }
 
 export async function createWorktree(
@@ -132,56 +110,32 @@ export async function createWorktree(
     );
   }
 
-  const stateDir = await mkdtemp(path.join(tmpdir(), CREATOR_STATE_PREFIX));
-  const stateFile = path.join(stateDir, "state");
-  const args = buildCreatorArgs(inspected, stateFile);
+  await executeCreatePlan(inspected, options);
 
-  try {
-    const result = await options.runner.run("env", [
-      `PI_CODING_AGENT_DIR=${resolveAgentDir(options.env)}`,
-      "bash", options.creatorPath, ...args,
-    ]);
-    const state = await readCreatorState(stateFile);
-    if (result.code !== 0) {
-      throw creatorFailure(state, inspected.worktreePath, result.code);
-    }
-    if (state !== "completed") {
-      throw new WorktreeError(
-        "创建器未返回完成状态，工作树状态需要人工核对", "verification", inspected.worktreePath,
-      );
-    }
-
-    const records = await readWorktreeRecords(inspected.repoPath, options.runner);
-    const record = await findRegisteredWorktree(records, inspected.worktreePath);
-    if (!record) {
-      throw new WorktreeError(
-        "创建器已退出，但 Git 未登记目标工作树", "verification", inspected.worktreePath,
-      );
-    }
-    verifyCreatedRecord(record, inspected.input);
-    if (!(await readOwnershipMarker(inspected.worktreePath, options.runner))) {
-      throw new WorktreeError(
-        "创建器已退出，但目标工作树缺少有效的 Pi 所有权标记", "verification", inspected.worktreePath,
-      );
-    }
-
-    return {
-      repoPath: inspected.repoPath,
-      worktreePath: inspected.worktreePath,
-      mode: inspected.input.mode,
-      baseRef: inspected.input.baseRef ?? inspected.input.branch ?? DEFAULT_BASE_REF,
-      branch: record.branch,
-      head: record.head,
-      setupHook: inspected.setupHookPath
-        ? {
-            status: "completed", path: inspected.setupHookPath,
-            resolvedPath: inspected.setupHookResolvedPath, blobId: inspected.setupHookBlobId,
-          }
-        : { status: "skipped" },
-    };
-  } finally {
-    await rm(stateDir, { recursive: true, force: true });
+  const records = await readWorktreeRecords(inspected.repoPath, options.runner, "verification");
+  const record = await findRegisteredWorktree(records, inspected.worktreePath);
+  if (!record) {
+    throw new WorktreeError("Git 创建命令已完成，但未登记目标工作树", "verification", inspected.worktreePath);
   }
+  verifyCreatedRecord(record, inspected.input);
+  if (!(await readOwnershipMarker(inspected.worktreePath, options.runner))) {
+    throw new WorktreeError("Git 创建命令已完成，但目标工作树缺少有效的 Pi 所有权标记", "verification", inspected.worktreePath);
+  }
+
+  return {
+    repoPath: inspected.repoPath,
+    worktreePath: inspected.worktreePath,
+    mode: inspected.input.mode,
+    baseRef: inspected.input.baseRef ?? inspected.input.branch ?? DEFAULT_BASE_REF,
+    branch: record.branch,
+    head: record.head,
+    setupHook: inspected.setupHookPath
+      ? {
+          status: "completed", path: inspected.setupHookPath,
+          resolvedPath: inspected.setupHookResolvedPath, blobId: inspected.setupHookBlobId,
+        }
+      : { status: "skipped" },
+  };
 }
 
 export async function listWorktrees(
@@ -244,47 +198,6 @@ function normalizeOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") throw new WorktreeError("可选引用或分支参数必须是字符串", "validation");
   const normalized = value.trim();
   return normalized || undefined;
-}
-
-function buildCreatorArgs(
-  inspected: Awaited<ReturnType<typeof inspectCreateRequest>>,
-  stateFile: string,
-): string[] {
-  const args = ["--repo", inspected.repoPath, "--name", inspected.input.name, "--state-file", stateFile];
-
-  if (inspected.setupHookPath) {
-    args.push("--approve-setup-hook", inspected.setupHookBlobId!);
-  }
-  if (inspected.input.mode === "new-branch") {
-    args.push("--base", inspected.input.baseRef!, "--branch", inspected.input.branch!);
-  } else if (inspected.input.mode === "existing-branch") {
-    args.push("--existing-branch", inspected.input.branch!);
-  } else {
-    args.push("--base", inspected.input.baseRef!, "--detach");
-  }
-  return args;
-}
-
-async function readCreatorState(stateFile: string): Promise<string> {
-  try {
-    return (await readFile(stateFile, "utf8")).trim();
-  } catch {
-    return "unknown";
-  }
-}
-
-const CREATOR_FAILURE_STAGES: Record<string, WorktreeStage> = {
-  "before-create": "before-create", "git-add": "git-add", ownership: "ownership", "after-create": "after-create",
-};
-
-function creatorFailure(state: string, worktreePath: string, code: number): WorktreeError {
-  const stage = CREATOR_FAILURE_STAGES[state] ?? "validation";
-  const retained = stage === "after-create" || stage === "ownership"
-    ? `；已保留工作树供诊断：${worktreePath}` : "";
-  return new WorktreeError(
-    `工作树创建在 ${stage} 阶段失败（退出码 ${code}）${retained}。钩子输出未回显，以避免泄露敏感信息`,
-    stage, worktreePath,
-  );
 }
 
 function verifyCreatedRecord(record: WorktreeRecord, input: ReturnType<typeof validateCreateInput>): void {

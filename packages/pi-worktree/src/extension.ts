@@ -1,5 +1,4 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import {
   SessionManager,
@@ -32,7 +31,6 @@ const CREATE_COMMAND = "worktree:create";
 const MIGRATE_COMMAND = "worktree:migrate";
 const LIST_COMMAND = "worktree:list";
 const REMOVE_COMMAND = "worktree:remove";
-const CREATOR_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "create-worktree.sh");
 
 const createSchema = Type.Object(
   {
@@ -88,7 +86,7 @@ export default function (pi: ExtensionAPI) {
       return pi.exec(command, args, options);
     },
   };
-  const domainOptions = { runner, creatorPath: CREATOR_PATH };
+  const domainOptions = { runner };
   let mutationInProgress = false;
   const handoff = createSessionHandoff(pi);
   const progress = createWorktreeProgress(pi);
@@ -217,7 +215,7 @@ export default function (pi: ExtensionAPI) {
           { ...params, repoPath: params.repoPath?.trim() || ctx.cwd } as CreateWorktreeInput,
           {
             runner: signalRunner(runner, signal),
-            creatorPath: CREATOR_PATH,
+            signal,
           },
         );
         const scheduled = !signal?.aborted && handoff.schedule(sourceSessionFile, result.repoPath, result.worktreePath);

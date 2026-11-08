@@ -128,7 +128,7 @@ await assert.rejects(tool("worktree_remove").execute(
   aborted.signal, () => { abortedUpdates++; }, context,
 ));
 assert.equal(abortedUpdates, 0);
-assert.ok(runGit(repo, "worktree", "list", "--porcelain").includes(keptTarget));
+assert.ok(runGit(repo, "worktree", "list", "--porcelain").includes(keptTarget.replaceAll("\\", "/")));
 writeFileSync(path.join(keptTarget, "feature.txt"), "committed\n");
 runGit(keptTarget, "add", "feature.txt");
 runGit(keptTarget, "commit", "-qm", "feature");

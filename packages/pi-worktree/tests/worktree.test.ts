@@ -20,10 +20,9 @@ import {
   type CommandRunner,
 } from "../src/core.ts";
 import { SessionMigrationError, migratePersistentSession } from "../src/session.ts";
+import { canonicalPath } from "../src/worktree-paths.ts";
 
 const execFileAsync = promisify(execFile);
-const EXTENSION_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
-const CREATOR_PATH = path.join(EXTENSION_ROOT, "scripts", "create-worktree.sh");
 
 const realRunner: CommandRunner = {
   async run(command, args, options) {
@@ -184,6 +183,9 @@ test("resolveAgentDir 使用默认目录、展开字面 ~ 并拒绝相对路径"
     resolveAgentDir({ PI_CODING_AGENT_DIR: "~/pi/agent" }),
     path.join(homedir(), "pi", "agent"),
   );
+  if (process.platform === "win32") {
+    assert.equal(resolveAgentDir({ PI_CODING_AGENT_DIR: "~\\pi\\agent" }), path.join(homedir(), "pi", "agent"));
+  }
   assert.throws(
     () => resolveAgentDir({ PI_CODING_AGENT_DIR: "relative/agent" }),
     WorktreeError,
@@ -202,7 +204,7 @@ test("createWorktree 使用 PI_CODING_AGENT_DIR 并返回 Git 登记结果", asy
         baseRef: "main",
         branch: "feat/test",
       },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env: { PI_CODING_AGENT_DIR: agentDir } },
+      { runner: realRunner, env: { PI_CODING_AGENT_DIR: agentDir } },
     );
 
     assert.equal(result.repoPath, await realpath(repo));
@@ -215,7 +217,7 @@ test("createWorktree 使用 PI_CODING_AGENT_DIR 并返回 Git 登记结果", asy
 
     const listed = await listWorktrees(repo, realRunner, { PI_CODING_AGENT_DIR: agentDir });
     assert.equal(listed.worktrees.length, 1);
-    assert.equal(listed.worktrees[0].path, result.worktreePath);
+    assert.equal(canonicalPath(listed.worktrees[0].path), canonicalPath(result.worktreePath));
     assert.ok(listed.worktrees[0].createdAt);
     assert.equal(listed.worktrees[0].lastCommitAt, (await git(result.worktreePath, "show", "-s", "--format=%cI", "HEAD")).trim());
     const removed = await removeWorktree(
@@ -227,7 +229,7 @@ test("createWorktree 使用 PI_CODING_AGENT_DIR 并返回 Git 登记结果", asy
   });
 });
 
-test("createWorktree 要求显式批准项目钩子", async () => {
+test("createWorktree 要求显式批准项目钩子（Windows 提前拒绝）", async () => {
   await withFixture(async (fixture) => {
     const repo = await createRepository(fixture);
     const hook = path.join(repo, ".pi", "worktree", "setup.sh");
@@ -242,11 +244,10 @@ test("createWorktree 要求显式批准项目钩子", async () => {
           { repoPath: repo, name: "repo-hook", mode: "detached", baseRef: "main" },
           {
             runner: realRunner,
-            creatorPath: CREATOR_PATH,
             env: { PI_CODING_AGENT_DIR: path.join(fixture, "agent") },
           },
         ),
-      "hook-approval",
+      process.platform === "win32" ? "validation" : "hook-approval",
     );
     assert.equal(
       (await listWorktrees(repo, realRunner, { PI_CODING_AGENT_DIR: path.join(fixture, "agent") }))
@@ -264,13 +265,13 @@ test("createWorktree 拒绝工作树根目录中的符号链接目标占位", as
     const outside = path.join(fixture, "outside");
     await mkdir(worktreeRoot, { recursive: true });
     await mkdir(outside);
-    await symlink(outside, path.join(worktreeRoot, "repo-link"));
+    await symlink(outside, path.join(worktreeRoot, "repo-link"), process.platform === "win32" ? "junction" : "dir");
 
     await expectWorktreeError(
       () =>
         createWorktree(
           { repoPath: repo, name: "repo-link", mode: "detached", baseRef: "main" },
-          { runner: realRunner, creatorPath: CREATOR_PATH, env: { PI_CODING_AGENT_DIR: agentDir } },
+          { runner: realRunner, env: { PI_CODING_AGENT_DIR: agentDir } },
         ),
       "validation",
     );
@@ -283,7 +284,7 @@ test("removeWorktree 拒绝未确认、当前 cwd 和脏工作树，默认安全
     const agentDir = path.join(fixture, "agent");
     const created = await createWorktree(
       { repoPath: repo, name: "repo-remove", mode: "new-branch", baseRef: "main", branch: "feat/remove" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env: { PI_CODING_AGENT_DIR: agentDir } },
+      { runner: realRunner, env: { PI_CODING_AGENT_DIR: agentDir } },
     );
 
     await expectWorktreeError(
@@ -342,7 +343,7 @@ test("removeWorktree 可仅移除工作树并保留未合并分支", async () =>
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-keep", mode: "new-branch", baseRef: "main", branch: "feat/keep" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     await writeFile(path.join(created.worktreePath, "feature.txt"), "committed\n", "utf8");
     await git(created.worktreePath, "add", "feature.txt");
@@ -366,7 +367,7 @@ test("removeWorktree 在未合并分支时保留目录和分支", async () => {
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-unmerged", mode: "new-branch", baseRef: "main", branch: "feat/unmerged" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     await writeFile(path.join(created.worktreePath, "feature.txt"), "committed\n", "utf8");
     await git(created.worktreePath, "add", "feature.txt");
@@ -393,7 +394,7 @@ test("removeWorktree 在已合并主工作区但未合并上游时保留目录",
     await git(repo, "branch", "review-base", "main");
     const created = await createWorktree(
       { repoPath: repo, name: "repo-upstream", mode: "new-branch", baseRef: "main", branch: "feat/upstream" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     await git(created.worktreePath, "branch", "--set-upstream-to", "review-base", "feat/upstream");
     await writeFile(path.join(created.worktreePath, "feature.txt"), "committed\n", "utf8");
@@ -422,7 +423,7 @@ test("removeWorktree 删除分支失败时报告部分成功", async () => {
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-partial", mode: "new-branch", baseRef: "main", branch: "feat/partial" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     const failingRunner: CommandRunner = {
       run: (command, args, options) =>
@@ -451,7 +452,7 @@ test("removeWorktree 忽略上游查询中不属于目标分支的记录", async
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-exact", mode: "new-branch", baseRef: "main", branch: "feat/exact" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     const extraRefRunner: CommandRunner = {
       async run(command, args, options) {
@@ -476,7 +477,7 @@ test("removeWorktree 移除后复核失败时声明分支未处理", async () =>
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-verify", mode: "new-branch", baseRef: "main", branch: "feat/verify" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     let listCalls = 0;
     const failingRunner: CommandRunner = {
@@ -508,7 +509,7 @@ test("removeWorktree 删除分支命令异常时报告分支状态未确认", as
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-throw", mode: "new-branch", baseRef: "main", branch: "feat/throw" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     const failingRunner: CommandRunner = {
       run: (command, args, options) =>
@@ -536,7 +537,7 @@ test("removeWorktree 移除 detached 工作树无需删除分支", async () => {
     const env = { PI_CODING_AGENT_DIR: agentDir };
     const created = await createWorktree(
       { repoPath: repo, name: "repo-detached", mode: "detached", baseRef: "main" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     const removed = await removeWorktree(
       { repoPath: repo, worktreePath: created.worktreePath, currentCwd: repo, confirmed: true },
@@ -591,7 +592,7 @@ test("resolveMigrationTarget 只接受指定仓库登记的 Pi linked worktree",
         baseRef: "main",
         branch: "feat/migration-target",
       },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env: { PI_CODING_AGENT_DIR: agentDir } },
+      { runner: realRunner, env: { PI_CODING_AGENT_DIR: agentDir } },
     );
 
     const target = await resolveMigrationTarget(repo, created.worktreePath, {
@@ -639,7 +640,7 @@ test("resolveMigrationTarget 只接受指定仓库登记的 Pi linked worktree",
   });
 });
 
-test("createWorktree after-create 失败时保留带所有权标记的 Pi 工作树", async () => {
+test("createWorktree after-create 失败时保留带所有权标记的 Pi 工作树", { skip: process.platform === "win32" }, async () => {
   await withFixture(async (fixture) => {
     const repo = await createRepository(fixture);
     const hook = path.join(repo, ".pi", "worktree", "setup.sh");
@@ -665,7 +666,7 @@ test("createWorktree after-create 失败时保留带所有权标记的 Pi 工作
             branch: "feat/after-fail",
             setupHookApproved: true,
           },
-          { runner: realRunner, creatorPath: CREATOR_PATH, env },
+          { runner: realRunner, env },
         ),
       "after-create",
     );
@@ -678,8 +679,8 @@ test("createWorktree after-create 失败时保留带所有权标记的 Pi 工作
 
     const listed = await listWorktrees(repo, realRunner, env);
     assert.deepEqual(
-      listed.worktrees.map((record) => record.path),
-      [target],
+      listed.worktrees.map((record) => canonicalPath(record.path)),
+      [canonicalPath(target)],
     );
     assert.ok(listed.worktrees[0].createdAt);
   });
@@ -698,18 +699,18 @@ test("listWorktrees 只返回带有效所有权标记的 Pi 工作树", async ()
 
     const owned = await createWorktree(
       { repoPath: repo, name: "owned-worktree", mode: "new-branch", baseRef: "main", branch: "feat/owned" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     const broken = await createWorktree(
       { repoPath: repo, name: "broken-worktree", mode: "new-branch", baseRef: "main", branch: "feat/broken" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     await writeFile(await ownershipMarkerFile(broken.worktreePath), "{not-json", "utf8");
 
     const listed = await listWorktrees(repo, realRunner, env);
     assert.deepEqual(
-      listed.worktrees.map((record) => record.path),
-      [await realpath(owned.worktreePath)],
+      listed.worktrees.map((record) => canonicalPath(record.path)),
+      [canonicalPath(owned.worktreePath)],
     );
 
     await expectWorktreeError(
@@ -743,20 +744,20 @@ test("listWorktrees 按 createdAt 倒序并用路径稳定排序", async () => {
 
     const alpha = await createWorktree(
       { repoPath: repo, name: "list-alpha", mode: "new-branch", baseRef: "main", branch: "feat/list-alpha" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
     const beta = await createWorktree(
       { repoPath: repo, name: "list-beta", mode: "new-branch", baseRef: "main", branch: "feat/list-beta" },
-      { runner: realRunner, creatorPath: CREATOR_PATH, env },
+      { runner: realRunner, env },
     );
-    const alphaPath = await realpath(alpha.worktreePath);
-    const betaPath = await realpath(beta.worktreePath);
+    const alphaPath = canonicalPath(alpha.worktreePath);
+    const betaPath = canonicalPath(beta.worktreePath);
 
     await writeOwnershipMarker(alpha.worktreePath, "2026-01-02T00:00:00.000Z");
     await writeOwnershipMarker(beta.worktreePath, "2026-01-01T00:00:00.000Z");
     let listed = await listWorktrees(repo, realRunner, env);
     assert.deepEqual(
-      listed.worktrees.map((record) => record.path),
+      listed.worktrees.map((record) => canonicalPath(record.path)),
       [alphaPath, betaPath],
     );
     assert.deepEqual(
@@ -767,7 +768,7 @@ test("listWorktrees 按 createdAt 倒序并用路径稳定排序", async () => {
     await writeOwnershipMarker(alpha.worktreePath, "2026-01-01T00:00:00.000Z");
     listed = await listWorktrees(repo, realRunner, env);
     assert.deepEqual(
-      listed.worktrees.map((record) => record.path),
+      listed.worktrees.map((record) => canonicalPath(record.path)),
       [alphaPath, betaPath],
     );
   });

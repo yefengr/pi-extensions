@@ -2,12 +2,17 @@ import { lstat, mkdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { isStrictlyWithin, parseWorktreePorcelain } from "./worktree-utils.ts";
+import { samePath } from "./worktree-paths.ts";
+import type { HookRunner } from "./worktree-hook.ts";
+export { samePath } from "./worktree-paths.ts";
 import { WorktreeError } from "./worktree-types.ts";
 import type { CommandResult, CommandRunner, WorktreeRecord, WorktreeStage } from "./worktree-types.ts";
 
 export interface DomainOptions {
   runner: CommandRunner;
-  creatorPath: string;
+  hookRunner?: HookRunner;
+  signal?: AbortSignal;
+  platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -112,7 +117,9 @@ export async function resolveExistingWorktreeRoot(env: NodeJS.ProcessEnv): Promi
 
 function expandHome(value: string): string {
   if (value === "~") return homedir();
-  if (value.startsWith(`~${path.sep}`)) return path.join(homedir(), value.slice(2));
+  if (value.startsWith("~/") || (process.platform === "win32" && value.startsWith("~\\"))) {
+    return path.join(homedir(), value.slice(2));
+  }
   return value;
 }
 
@@ -143,10 +150,6 @@ export async function runChecked(
     throw new WorktreeError(`${message}（退出码 ${result.code}）`, stage, worktreePath);
   }
   return result;
-}
-
-export function samePath(left: string, right: string): boolean {
-  return path.resolve(left) === path.resolve(right);
 }
 
 export function isPathWithinOrEqual(parent: string, candidate: string): boolean {

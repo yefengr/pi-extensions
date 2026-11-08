@@ -14,6 +14,16 @@ export function definition(overrides: Partial<MonitorDefinition> = {}): MonitorD
   };
 }
 
+export function isolatedEnvironment(home: string, agent: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH, HOME: home, USERPROFILE: home, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", TERM: "xterm-256color",
+  };
+  for (const key of ["SystemRoot", "WINDIR", "ComSpec", "PATHEXT", "TEMP", "TMP"]) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  return env;
+}
+
 export function installedPiRoot(): string {
   if (process.env.PI_MONITOR_PI_ROOT) return process.env.PI_MONITOR_PI_ROOT;
   try {
@@ -57,9 +67,9 @@ export function installHostAliases(): void {
   } });
 }
 
-export async function eventually(predicate: () => boolean, timeout = 2_000): Promise<void> {
+export async function eventually(predicate: () => boolean | Promise<boolean>, timeout = 2_000): Promise<void> {
   const end = Date.now() + timeout;
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() > end) throw new Error("等待测试条件超时");
     await new Promise((resolve) => setTimeout(resolve, 5));
   }

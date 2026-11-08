@@ -1,5 +1,6 @@
 import path from "node:path";
 import { realpath } from "node:fs/promises";
+import { samePath } from "./worktree-paths.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { listWorktrees, resolveMigrationTarget, type CommandRunner } from "./core.ts";
 import { migratePersistentSession, type SessionForker } from "./session.ts";
@@ -22,7 +23,7 @@ export async function collectWorkspaceChoices(cwd: string, runner: CommandRunner
     ...listed.worktrees.map((record) => ({ ...record, main: false })),
   ].map(async (record) => {
     const canonicalPath = await realpath(record.path);
-    const current = currentRoot === canonicalPath;
+    const current = samePath(currentRoot, canonicalPath);
     return {
       path: canonicalPath,
       current,
@@ -53,7 +54,7 @@ export function registerWorktreeSwitch(
           const loaded = await collectWorkspaceChoices(ctx.cwd, runner);
           if (parsed?.repoPath !== undefined) {
             const requested = await listWorktrees(parsed.repoPath, runner);
-            if (requested.repoPath !== loaded[0].path) throw new Error("只能切换当前仓库的工作空间");
+            if (!samePath(requested.repoPath, loaded[0].path)) throw new Error("只能切换当前仓库的工作空间");
           }
           return loaded;
         });
@@ -61,7 +62,7 @@ export function registerWorktreeSwitch(
         if (!selectedPath) return;
         await progress.run(ctx, "正在检查切换目标…", async (operation) => {
           const target = await resolveMigrationTarget(choices[0].path, selectedPath, { runner, allowMainWorktree: true });
-          if (await realpath(ctx.cwd) === target.worktreePath) return;
+          if (samePath(await realpath(ctx.cwd), target.worktreePath)) return;
           operation.update(`正在切换到 ${path.basename(target.worktreePath)}…`);
           await ctx.waitForIdle();
           await withMutationLock(async () => {

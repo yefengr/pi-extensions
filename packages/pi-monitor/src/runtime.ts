@@ -60,7 +60,11 @@ export class MonitorRuntime {
     } as Binding;
     this.binding = binding;
     binding.engine = new MonitorEngine({
-      check: this.deps.check ?? executeCheck,
+      check: this.deps.check ?? ((task, signal) => executeCheck(task, signal, (message) => {
+        if (!this.isCurrent(binding)) return;
+        binding.ctx.ui.notify(safeText(`监听 ${task.name}：${message}`), "warning");
+        if (binding.engine.get(task.id)?.status === "running") this.logger.write(task, { action: "check", cleanupWarning: message });
+      })),
       save: (record) => {
         this.assertCurrent(binding);
         try { this.pi.appendEntry(STATE_TYPE, { version: 1, record }); }
@@ -324,7 +328,6 @@ export class MonitorRuntime {
   }
 
   private start(input: unknown, ctx: ExtensionContext, binding: Binding): MonitorRecord {
-    if (process.platform === "win32") throw new Error("monitor 第一版仅支持 macOS/Linux");
     this.checkCapacity(binding);
     const definition = makeDefinition(input, ctx.cwd, binding.owner);
     binding.allowed.add(definition.id);

@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
+
+function npmCli(): string {
+  const candidates = [process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+    path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")];
+  const cli = candidates.find((candidate) => candidate && existsSync(candidate));
+  assert.ok(cli, "需要 npm-cli.js；请通过 npm test 运行打包验证");
+  return cli;
+}
 
 function run(command: string, args: string[], cwd: string): string {
   return execFileSync(command, args, { cwd, encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"] });
@@ -36,17 +46,17 @@ test("真实 tarball 在新路径可加载并实际执行打包创建器，保�
   const sandbox = await mkdtemp(path.join(temporaryRoot, "worktree-package-"));
   const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
   try {
-    const [packed] = JSON.parse(run("npm", ["pack", "--json", "--pack-destination", sandbox], root));
+    // Windows 系统 tar 与 POSIX tar 均支持此参数；缺失时明确失败，不能把 tarball 验证静默跳过。
+    run("tar", ["--version"], root);
+    const [packed] = JSON.parse(run(process.execPath, [npmCli(), "pack", "--json", "--pack-destination", sandbox], root));
     const files = new Set<string>(packed.files.map((entry: { path: string }) => entry.path));
     for (const file of ["index.ts", "src/extension.ts", "src/worktree-remove.ts", "src/worktree-repository.ts",
-      "scripts/create-worktree.sh", "README.md", "LICENSE", "CHANGELOG.md"]) {
+      "src/worktree-create.ts", "src/worktree-hook.ts", "src/worktree-paths.ts", "README.md", "LICENSE", "CHANGELOG.md"]) {
       assert.ok(files.has(file), file);
     }
     assert.equal([...files].some((file) => /(^|\/)(tests|node_modules|\.pi)(\/|$)|tsconfig|biome/.test(file)), false);
-    const packedCreator = packed.files.find((entry: { path: string }) => entry.path === "scripts/create-worktree.sh");
-    assert.ok(packedCreator && (packedCreator.mode & 0o111) !== 0, "发布创建器必须保留可执行位");
+    assert.equal([...files].some((file) => file.endsWith(".sh")), false, "发布包不再携带 Shell 创建器");
     run("tar", ["-xzf", path.join(sandbox, packed.filename), "-C", sandbox], root);
-    assert.notEqual((await stat(path.join(sandbox, "package/scripts/create-worktree.sh"))).mode & 0o111, 0);
     const repo = path.join(sandbox, "repo");
     const agentDir = path.join(sandbox, "agent");
     await mkdir(repo);

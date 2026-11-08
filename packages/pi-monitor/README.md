@@ -4,7 +4,7 @@ A general-purpose background command monitoring extension for Pi. The model deci
 
 ## Loading and Trying It Out
 
-Requires Node >=22.19 and Pi >=1.2.0. The executor supports macOS/Linux; Windows is not supported.
+Requires Node >=22.19 and Pi >=1.2.0. The executor supports macOS/Linux and includes a native Windows 10/11 implementation; WSL and Git Bash are not required. Windows process cleanup is best-effort. Windows Server CI is configured separately from Windows 10/11 client acceptance; the validation boundary is tracked in the [Windows compatibility plan](../../docs/plans/windows-support.md) in the source repository.
 
 Install from npm:
 
@@ -41,7 +41,7 @@ Long-term adoption in this repository follows the existing release process; see 
 
 The mode must be explicit. Every event returned by the first check is treated as a new event; to watch only changes after start, the check command must establish a baseline. In one-shot mode, if you only want to wait for the final result, the check command should return an empty event list during progress stages.
 
-Check scheduling and delivery are independent: checks keep running while the agent is explaining, and after a one-shot check stops, results that have not been delivered yet are not discarded. `stop` only cancels the check and the child processes in its group; it does not stop remote business tasks.
+Check scheduling and delivery are independent: checks keep running while the agent is explaining, and after a one-shot check stops, results that have not been delivered yet are not discarded. `stop` only cancels the local check: it reaps the POSIX process group or requests best-effort Windows process-tree cleanup. A stop request is not proof that every descendant exited, and it does not stop remote business tasks.
 
 ## Tools and Commands
 
@@ -134,6 +134,8 @@ The check itself failed:
 
 A failing business task can be a normal event; a check error, non-zero exit, timeout, invalid JSON, and output over the limit are check failures and do not count as one-shot task completion. Diagnostic logs go to stderr.
 
+Commands keep executable and arguments separate. Windows `.cmd`/`.bat` wrappers, PATH/PATHEXT lookup, and supported shebang scripts use `cross-spawn`; normal executables are not run through a shell. Shell operators require an explicit platform-appropriate interpreter. Prefer a native Node check for portable scripts, and ensure any PowerShell or other interpreter writes UTF-8 JSON rather than relying on its default code page.
+
 The protocol strictly rejects unknown fields. stdout and stderr total at most 64 KiB; at most 32 events per check, event IDs at most 256 characters and free of control characters, summaries at most 500 characters, JSON for a single `data` at most 8192 UTF-8 bytes, and cursors at most 4096 characters.
 
 ### Deduplication and Incremental Reads
@@ -187,13 +189,15 @@ Tasks and key state are saved with Pi's `appendEntry()` and appended only on sub
 | Re-entering the session | Paused by default; the model decides whether to call `resume`. Tasks with `autoResume: true` continue automatically on `startup` and `resume` |
 | Tree navigation | Pauses the old branch first, then rebuilds from the target branch; cancelling navigation also leaves it paused |
 | fork/clone | Does not inherit execution permission from another session; it does not continue even with `autoResume: true` |
-| Pi exit or session switch | Cancels local timers and checks; late results are not written into another session |
+| Pi exit or session switch | Cancels local timers and requests check cleanup; late results are not written into another session, but Windows cleanup remains best-effort |
 
 For a task whose check has stopped but which still has pending results, `resume` can resume delivery only, without restarting the check. Tasks that are completed, stopped, or expired with no pending results cannot be resumed; create a new task instead.
 
 The status bar only shows a summary of the current session, for example `monitor paused 1 · pending 2 · running 3 · retrying 1`. The running count includes retries; pending delivery is counted by task. Paused and pending-delivery counts are shown with priority, zero items are hidden, and the whole item is hidden when there are no active or pending tasks.
 
-Watching does not continue after Pi shuts down, and no daemon is provided. Do not run the same session from multiple Pi processes at the same time. Raw session JSONL files are not cleaned up automatically and still grow with real events; limiting per-check output and in-memory state does not mean disk history is permanently bounded.
+On Windows, cleanup calls the system `taskkill.exe /T /F` while the current root process is still live. Cleanup errors are surfaced, and cleanup/pipe waiting is bounded. Once the root has exited, the executor does not retry with a historical PID: descendants holding inherited pipes can remain, so the executor closes its local pipes and treats an incomplete drain as a failed check instead of waiting forever. On macOS/Linux, independent process groups and TERM-to-KILL escalation are retained.
+
+Watching does not continue after Pi shuts down, and no daemon is provided. A normal Pi shutdown requests cleanup, but closing the terminal, crashing Pi, or force-killing it can leave the current check or descendants running; Pi's timeout timer cannot clean them up after Pi itself has exited. Do not run the same session from multiple Pi processes at the same time. Raw session JSONL files are not cleaned up automatically and still grow with real events; limiting per-check output and in-memory state does not mean disk history is permanently bounded.
 
 ## Development Verification
 
@@ -204,5 +208,7 @@ npm --prefix packages/pi-monitor test
 npm --prefix packages/pi-monitor run typecheck
 cd runtimes/go && go test ./...
 ```
+
+The CI Windows jobs run the two target packages on the primary Node runtime and Node 22.19, including real tarball loading/execution. Windows Server runners do not certify Windows 10/11 client behavior. The tests retain POSIX descendant-reaping assertions and cover Windows wrappers, Unicode/space paths, tree cleanup, cleanup failures, inherited-pipe bounds, RPC lifecycle, and protocol limits. Test fixtures clean up their own remaining processes.
 
 Type checking requires the dev dependencies in the manifest and the Pi peer. Integration tests reuse the installed Pi; `PI_MONITOR_PI_ROOT` can point at that package root. They never install anything or rewrite personal configuration for tests. The RPC notification smoke uses an isolated HOME, a seeded session, and notification-only mode to check confirmation-free start/resume, both modes, reload, and session switching without invoking the model. The explanation-turn smoke uses a local HTTP model-response fixture to verify that native messages are written to disk and write tools are blocked; it does not access external models and incurs no real model costs.

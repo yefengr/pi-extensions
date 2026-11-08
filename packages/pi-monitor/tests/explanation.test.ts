@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { eventually, piCliPath } from "./helpers.ts";
+import { eventually, isolatedEnvironment, piCliPath } from "./helpers.ts";
 
 // 仅本地 HTTP fixture 伪造模型响应，真实 Pi 驱动解释轮和工具硬门禁；没有外部模型费用。
 test("real Pi explanation persists receipt and blocks model-requested writes", { timeout: 30_000 }, async (t) => {
@@ -52,7 +52,7 @@ test("real Pi explanation persists receipt and blocks model-requested writes", {
   const child = spawn(process.execPath, [cli, "--offline", "--mode", "rpc", "--session", session,
     "-ne", "-ns", "-np", "-nc", "--no-themes", "--no-mcp", "-e", fileURLToPath(new URL("../index.ts", import.meta.url)), "-e", provider,
     "--provider", "monitor-fixture", "--model", "fixture", "--thinking", "off",
-  ], { cwd: root, env: { PATH: process.env.PATH, HOME: root, PI_CODING_AGENT_DIR: agent, PI_OFFLINE: "1", TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "pipe"] });
+  ], { cwd: root, env: isolatedEnvironment(root, agent), windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
   let exited = false;
   const exit = new Promise<number | null>((resolve) => child.once("exit", (code) => { exited = true; resolve(code); }));
   t.after(async () => {

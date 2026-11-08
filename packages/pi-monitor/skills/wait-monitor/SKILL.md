@@ -39,7 +39,7 @@ description: 当需要等待外部状态变化（构建、部署、CI、远端�
 
 ## 检查命令写法
 
-- 执行器直接 spawn argv，不经过 shell。需要管道、重定向或条件时用 `command: "bash", args: ["-lc", "..."]`，不要拼接整条命令字符串。
+- `command` 与 `args` 分离；普通可执行文件不经过 Shell，Windows 的 `.cmd/.bat` 和支持的 shebang 入口由跨平台启动库处理。需要管道或重定向时显式使用当前平台的解释器，不在 Windows 默认要求 Bash；跨平台检查优先用 Node，stdout 必须为 UTF-8。
 - stdout 必须恰好是一个 JSON 对象；诊断日志写 stderr。未知字段会被拒绝。
 - 无变化：`{"state":"ok","events":[]}`；有新事件：`{"state":"ok","events":[{"id":"...","summary":"...","data":{}}],"cursor":"..."}`；检查异常：`{"state":"error","summary":"..."}`。检查失败不要用非零退出或日志冒充。
 - 首次检查返回的事件全部算新事件。只关心启动后的变化时，命令应先把当前状态记为基线并返回空列表。
@@ -55,26 +55,29 @@ description: 当需要等待外部状态变化（构建、部署、CI、远端�
   "purpose": "构建结束后通知一次",
   "mode": "once",
   "delivery": "notify",
-  "command": "bash",
-  "args": ["-lc", "test -f dist/app.js && echo '{\"state\":\"ok\",\"events\":[{\"id\":\"build-done\",\"summary\":\"dist/app.js 已生成\"}]}' || echo '{\"state\":\"ok\",\"events\":[]}'"],
-  "cwd": "/path/to/project",
+  "command": "node",
+  "args": ["-e", "const fs=require('node:fs');console.log(JSON.stringify({state:'ok',events:fs.existsSync('dist/app.js')?[{id:'build-done',summary:'dist/app.js 已生成'}]:[]}))"],
   "intervalSeconds": 20,
   "timeoutSeconds": 10,
   "maxDurationSeconds": 1800
 }
 ```
 
-等待 GitHub Actions 的 CI 终态时，直接用下面的脚本，不要每轮重新拼命令。把 `<RUN_ID>` 换成数字运行 ID，作为 `args: ["-lc", <脚本>]` 注册：
+等待 GitHub Actions 的 CI 终态时，可用下面的 Node 脚本和现有 `gh` 命令，不要每轮重新拼命令。把 `<RUN_ID>` 换成数字运行 ID，以 `command: "node"`、`args: ["-e", <脚本>]` 注册：
 
-```bash
-line=$(gh run view <RUN_ID> --json status,conclusion --jq 'select(.status=="completed") | .conclusion' 2>/dev/null) || {
-  echo '{"state":"error","summary":"gh run view 失败"}'; exit 0;
+```js
+const { execFileSync } = require("node:child_process");
+try {
+  const run = JSON.parse(execFileSync("gh", ["run", "view", "<RUN_ID>", "--json", "status,conclusion"], {
+    encoding: "utf8", windowsHide: true,
+  }));
+  const events = run.status === "completed"
+    ? [{ id: `run-<RUN_ID>-${run.conclusion}`, summary: `CI ${run.conclusion}` }]
+    : [];
+  console.log(JSON.stringify({ state: "ok", events }));
+} catch {
+  console.log(JSON.stringify({ state: "error", summary: "gh run view 失败" }));
 }
-if [ -n "$line" ]; then
-  printf '{"state":"ok","events":[{"id":"run-<RUN_ID>-%s","summary":"CI %s"}]}\n' "$line" "$line"
-else
-  echo '{"state":"ok","events":[]}'
-fi
 ```
 
 参数用 `mode: "once"`、`delivery: "explain"`、`intervalSeconds: 60`、`timeoutSeconds: 30`、`maxDurationSeconds: 3600`。`gh run view` 未完成时返回空事件，完成时只返回一次终态事件，`once` 收到后自动停止。
@@ -95,7 +98,7 @@ process.stdout.write(JSON.stringify({ state: "ok", events: [], cursor: cursor ??
 - `notify` 只写扩展条目和 UI 通知，不进入模型上下文；需要内容时显式 `status` 查询。
 - 查证据：`status` 传 `id`，再加 `batchId` 看批次，再加 `eventId` 读完整事件；输出中的 `logPath` 指向项目内日志文件。
 - 排查检查命令本身时读 `.pi/logs/monitor/<name>-<id8>.jsonl`：`info` 有耗时、事件摘要与暂停原因，`debug` 才有命令参数和事件 `data` 预览。
-- `stop` 只取消检查及其进程组，不停止远端业务任务。
+- `stop` 只取消本地检查：POSIX 回收进程组，Windows 尝试回收当前存活根进程的进程树；已请求停止不等于后代全部退出，不停止远端业务任务。
 - 重新进入会话后任务默认暂停，由模型判断是否 `resume`；已完成、停止或到期且无待回传结果的任务不能恢复，应新建。
 - 连续 5 次检查失败或积压满会暂停；修复原因后 `resume`，不要重建任务掩盖问题。
 
@@ -111,6 +114,7 @@ process.stdout.write(JSON.stringify({ state: "ok", events: [], cursor: cursor ??
 - 无游标且事件无限增长：每任务只保留最近 1000 个事件 ID，容量不足会暂停。
 - 用 `notify` 却期望模型自动分析结果。
 - 用 `monitor` 守护进程或替代 tmux；Pi 退出后不继续监听，也不提供 daemon。
+- 把 Windows best-effort 当作零残留保证：已退出根进程的旧 PID 不会补杀；关闭终端、Pi 崩溃或被强制结束后，当前检查及后代可能残留，Pi 的超时计时器也不再运行。
 
 ## 验收
 
