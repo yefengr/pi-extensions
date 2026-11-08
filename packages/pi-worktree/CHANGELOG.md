@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Add native Windows 10/11 support for worktree creation, switching, migration, listing, and removal through Node.js APIs and Git argv calls, with no Shell creator or extra runtime dependency.
+- Replace the bundled `create-worktree.sh` with an in-package TypeScript implementation; on Windows, project setup hooks are rejected explicitly before any worktree state is created rather than silently skipped.
+- Reject Windows device names such as `con`, `nul`, and `com1`, and document hook stages, environment variables, timeouts, and cancellation behavior.
+
 ## 0.1.2
 
 - Show temporary native progress during worktree creation, switching, migration, and removal, including actual elapsed time and batch target counts.
