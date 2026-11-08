@@ -154,13 +154,19 @@ test("native 11：批准内容在 before-create 前改变则拒绝执行", posix
 
 test("native 12：所有权失败保留工作树但不伪造成功", async () => {
   await fixture(async (f) => {
+    // 保留不同的路径写法，覆盖 CI 临时路径经 realpath 规范化后的身份匹配。
+    const targetAlias = `${f.target}${path.sep}.`;
+    let injectedFailures = 0;
     const failing: CommandRunner = { async run(command, args, options) {
-      if (args[1] === f.target && args.includes("--absolute-git-dir")) {
+      const target = args[1];
+      if (target && args.includes("--absolute-git-dir") && samePath(target, targetAlias)) {
+        injectedFailures++;
         return { code: 1, stdout: "", stderr: "fixture-only", killed: false };
       }
       return runner.run(command, args, options);
     } };
     await assert.rejects(f.create({}, { runner: failing }), stage("ownership"));
+    assert.equal(injectedFailures, 1, "必须在所有权阶段实际注入一次失败");
     assert.ok(await realpath(f.target));
     assert.ok(await f.git("branch", "--list", "feat/sample"));
     assert.equal((await listWorktrees(f.repo, runner, f.options.env)).worktrees.length, 0);
