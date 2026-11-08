@@ -774,16 +774,34 @@ test("listWorktrees 按 createdAt 倒序并用路径稳定排序", async () => {
   });
 });
 
-test("listWorktrees 在根目录解析遇到非 ENOENT 错误时明确报错", async () => {
+test("listWorktrees 按平台区分解析普通文件 blocker 时的根目录结果", async () => {
   await withFixture(async (fixture) => {
     const repo = await createRepository(fixture);
     const blocker = path.join(fixture, "blocker");
     await writeFile(blocker, "not a directory\n", "utf8");
     const env = { PI_CODING_AGENT_DIR: path.join(blocker, "pi", "agent") };
 
+    // Windows realpath 穿起普通文件时返回 ENOENT（无工作树），POSIX 返回 ENOTDIR（必须报错）。
+    if (process.platform === "win32") {
+      assert.deepEqual((await listWorktrees(repo, realRunner, env)).worktrees, []);
+      return;
+    }
     const error = await expectWorktreeError(() => listWorktrees(repo, realRunner, env), "list");
     assert.match(error.message, /无法解析 Pi 工作树根目录/);
     assert.equal(error.worktreePath, path.join(blocker, "pi", "worktrees"));
+  });
+});
+
+test("listWorktrees 在根目录解析遇到非 ENOENT 错误时明确报错", async () => {
+  await withFixture(async (fixture) => {
+    const repo = await createRepository(fixture);
+    // 嵌 NUL 的绝对路径在全部平台上都被 Node 以非 ENOENT 的路径错误拒绝。
+    const parent = path.join(fixture, "nul\u0000parent");
+    const env = { PI_CODING_AGENT_DIR: path.join(parent, "agent") };
+
+    const error = await expectWorktreeError(() => listWorktrees(repo, realRunner, env), "list");
+    assert.match(error.message, /无法解析 Pi 工作树根目录/);
+    assert.equal(error.worktreePath, path.join(parent, "worktrees"));
   });
 });
 

@@ -133,7 +133,7 @@ async function main() {
   assert.ok(rpc.records.some((record) => record.method === "notify"
     && textOf(record.message).includes(targetCwd)), "未收到新会话目录验证后的成功通知");
   const footerAfterAuto = await renderFooter(migratedFile, targetBranch);
-  assert.ok(footerAfterAuto.includes(targetCwd), `默认状态栏未显示目标目录：${footerAfterAuto}`);
+  assert.ok(footerAfterAuto.includes(await footerCwd(targetCwd)), `默认状态栏未显示目标目录：${footerAfterAuto}`);
   assert.ok(footerAfterAuto.includes(targetBranch));
 
   // JSON 仅用于 RPC 自动验证；用户入口由无参命令/快捷键打开选择列表。
@@ -146,7 +146,7 @@ async function main() {
   assert.equal(realpathSync(backHeader.cwd), sourceCwd);
   assert.equal(backHeader.parentSession, migratedFile);
   const footerAfterBack = await renderFooter(back.data.sessionFile, "main");
-  assert.ok(footerAfterBack.includes(sourceCwd));
+  assert.ok(footerAfterBack.includes(await footerCwd(sourceCwd)));
   assert.equal(requests.length, 3, "手动切换不应触发模型");
   await rpc.request("prompt", { message: `/worktree:switch ${JSON.stringify({
     repoPath: sourceCwd, worktreePath: sourceCwd,
@@ -188,9 +188,7 @@ function toolDelta(id, name, args) {
 
 async function renderFooter(sessionFile, branch) {
   const { SessionManager } = await import(pathToFileURL(piPackage).href);
-  const { FooterComponent } = await import(pathToFileURL(path.join(
-    path.dirname(piPackage), "modes", "interactive", "components", "footer.js",
-  )).href);
+  const { FooterComponent } = await import(footerModule());
   const themeModule = await import(pathToFileURL(path.join(
     path.dirname(piPackage), "modes", "interactive", "theme", "theme.js",
   )).href);
@@ -205,6 +203,18 @@ async function renderFooter(sessionFile, branch) {
     getExtensionStatuses: () => new Map(),
   });
   return footer.render(4096)[0].replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+// 状态栏按宿主 home 缩写目录；断言复用生产实现而不是假定未缩写路径。
+async function footerCwd(cwd) {
+  const { formatCwdForFooter } = await import(footerModule());
+  return formatCwdForFooter(cwd, process.env.HOME || process.env.USERPROFILE);
+}
+
+function footerModule() {
+  return pathToFileURL(path.join(
+    path.dirname(piPackage), "modes", "interactive", "components", "footer.js",
+  )).href;
 }
 
 function deadline(promise, timeoutMs, label) {

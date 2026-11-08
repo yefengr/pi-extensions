@@ -235,15 +235,16 @@ test("artifact validation requires exactly one regular tarball", async () => {
 });
 
 test("artifact metadata is read without extraction using exact tar arguments", async () => {
+  const tarballPath = path.resolve("/artifact", "package.tgz");
   const tarball = await validateArtifact("/artifact", candidate, {
     list: async () => [fileEntry("package.tgz"), fileEntry("notes.txt")],
     run: async (command, args) => {
       assert.equal(command, "tar");
-      assert.deepEqual(args, ["-xOf", "/artifact/package.tgz", "package/package.json"]);
+      assert.deepEqual(args, ["-xOf", tarballPath, "package/package.json"]);
       return { stdout: JSON.stringify(candidate) };
     },
   });
-  assert.equal(tarball, "/artifact/package.tgz");
+  assert.equal(tarball, tarballPath);
 });
 
 test("artifact identity, private flag, version and JSON must match the plan", async () => {

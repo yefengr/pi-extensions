@@ -58,7 +58,10 @@ test("parent exit reaps POSIX descendants or bounds Windows inherited pipes", as
     const started = Date.now();
     const promise = runCommand(definition({ args: ["-e", script], timeoutMs: 5_000 }), new AbortController().signal);
     if (process.platform === "win32") {
-      await assert.rejects(promise, /输出管道未关闭/);
+      // 继承管道在 Windows 上的收口时序允许两种结果；其他错误仍必须暴露。
+      const outcome = await promise.then((stdout) => ({ stdout: stdout.trim() }), (error: Error) => ({ error }));
+      if ("stdout" in outcome) assert.equal(outcome.stdout, "ok");
+      else assert.match(outcome.error.message, /输出管道未关闭/);
       assert.ok(Date.now() - started < 4_000);
     } else {
       assert.equal((await promise).trim(), "ok");

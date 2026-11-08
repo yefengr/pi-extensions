@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -51,7 +52,8 @@ test("所有包的 lint 都实际应用公共规则，不因局部配置或新�
     const fixture = path.join(ROOT, "packages", directory, `lint-contract-${randomUUID()}.ts`);
     await writeFile(fixture, "const values = [1];\nvalues.forEach((value) => values.push(value));\n", { flag: "wx" });
     try {
-      const result = spawnSync(path.join(ROOT, "node_modules", ".bin", "biome"), ["check", fixture], {
+      // 用依赖 manifest 声明的 JS 入口，避免只在 POSIX 可执行的 .bin 垫片。
+      const result = spawnSync(process.execPath, [await biomeEntry(), "check", fixture], {
         cwd: ROOT,
         encoding: "utf8",
       });
@@ -111,6 +113,23 @@ function run(command, args, cwd) {
   return result.stdout;
 }
 
+/** 复用工作区现有做法：通过 Node 执行 npm CLI，Windows 也不需要 .cmd 垫片。 */
+function npmCli() {
+  const candidates = [process.env.npm_execpath,
+    path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"),
+    path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js")];
+  const cli = candidates.find((candidate) => candidate && existsSync(candidate));
+  assert.ok(cli, "需要 npm-cli.js；请通过 npm test 运行打包验证");
+  return cli;
+}
+
+async function biomeEntry() {
+  const manifest = await json("node_modules/@biomejs/biome/package.json");
+  const bin = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.biome;
+  assert.ok(bin, "@biomejs/biome 必须在 manifest 中声明 biome bin");
+  return path.join(ROOT, "node_modules", "@biomejs", "biome", bin);
+}
+
 function exportPaths(value) {
   if (typeof value === "string") return [value];
   return Object.values(value).flatMap(exportPaths);
@@ -130,7 +149,7 @@ test("真实 tarball 包含完整公开入口，排除测试，并可由 Pi 一�
     const extensionPaths = [];
     let notifyPackage;
     for (const { directory, name } of PACKAGES) {
-      const [packed] = JSON.parse(run("npm", ["pack", "--json", "--workspace", name, "--pack-destination", sandbox], ROOT));
+      const [packed] = JSON.parse(run(process.execPath, [npmCli(), "pack", "--json", "--workspace", name, "--pack-destination", sandbox], ROOT));
       const expected = await json(`packages/${directory}/package.json`);
       assert.equal(packed.name, name, directory);
       assert.equal(packed.version, expected.version, directory);
