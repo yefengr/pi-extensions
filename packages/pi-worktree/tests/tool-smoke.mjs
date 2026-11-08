@@ -26,7 +26,7 @@ runGit(repo, "commit", "-qm", "init");
 process.env.PI_CODING_AGENT_DIR = agentDir;
 const loaded = await discoverAndLoadExtensions(
   [extensionPath],
-  realpathSync(repo),
+  realpathSync.native(repo),
   path.join(fixture, "empty-agent-dir"),
 );
 if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
@@ -38,7 +38,7 @@ const tool = (name) => {
 };
 let uiStatusCalls = 0;
 const context = {
-  cwd: realpathSync(repo),
+  cwd: realpathSync.native(repo),
   mode: "json", hasUI: false,
   ui: { setStatus() { uiStatusCalls++; } },
   sessionManager: { getSessionFile: () => undefined },
@@ -49,7 +49,7 @@ const defaultRepoPath = process.env.DEFAULT_REPO_PATH === "1";
 const createdResult = await tool("worktree_create").execute(
   "create-1",
   {
-    ...(defaultRepoPath ? {} : { repoPath: realpathSync(repo) }),
+    ...(defaultRepoPath ? {} : { repoPath: realpathSync.native(repo) }),
     name: "tool-smoke",
     mode: "new-branch",
     baseRef: "main",
@@ -67,7 +67,7 @@ if (typeof created.migrationCommand !== "string" || !created.migrationCommand.st
   throw new Error("工具创建未返回失败恢复命令");
 }
 if (created.branch !== "feat/tool-smoke") throw new Error("工具创建分支不匹配");
-const target = realpathSync(path.join(path.dirname(agentDir), "worktrees", "tool-smoke"));
+const target = realpathSync.native(path.join(path.dirname(agentDir), "worktrees", "tool-smoke"));
 if (created.worktreePath !== target) throw new Error("工具创建路径不匹配");
 if (updates.length === 0) throw new Error("工具创建未发送进度更新");
 

@@ -21,7 +21,7 @@ git(repo, "config", "user.email", "tester@example.com");
 writeFileSync(path.join(repo, "README.md"), "fixture\n");
 git(repo, "add", "README.md");
 git(repo, "commit", "-qm", "init");
-const main = realpathSync(repo);
+const main = realpathSync.native(repo);
 writeFileSync(sourceSession, `${JSON.stringify({ type: "session", version: 3, id: "33333333-3333-7333-8333-333333333333", timestamp: "2026-08-12T00:00:00.000Z", cwd: main })}\n`);
 process.env.PI_CODING_AGENT_DIR = agentDir;
 process.env.PI_CODING_AGENT_SESSION_DIR = path.join(fixture, "sessions");
@@ -138,7 +138,7 @@ function addWorktree(name, owned, detached = false) {
     const gitDir = git(target, "rev-parse", "--absolute-git-dir").trim();
     writeFileSync(path.join(gitDir, "pi-worktree-manager.json"), JSON.stringify({ schemaVersion: 1, createdAt: new Date().toISOString() }));
   }
-  return realpathSync(target);
+  return realpathSync.native(target);
 }
 function git(cwd, ...args) { return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }); }
 } finally {

@@ -18,7 +18,7 @@ for (const args of [["init", "-q", "-b", "main"], ["config", "user.name", "teste
 writeFileSync(path.join(repo, "README.md"), "fixture\n");
 git(repo, "add", "README.md");
 git(repo, "commit", "-qm", "init");
-const repoReal = realpathSync(repo);
+const repoReal = realpathSync.native(repo);
 writeFileSync(sourceSession, `${JSON.stringify({ type: "session", version: 3, id: "22222222-2222-7222-8222-222222222222", timestamp: "2026-08-12T00:00:00.000Z", cwd: repoReal })}\n`);
 process.env.PI_CODING_AGENT_DIR = agentDir;
 process.env.PI_CODING_AGENT_SESSION_DIR = sessionDir;
@@ -69,7 +69,7 @@ await extension.commands.get("worktree:migrate").handler(dispatches[0][0].slice(
 assert.equal(messages.length, 0, JSON.stringify(messages));
 assert.ok(ctx.migratedFile && ctx.migratedFile !== sourceSession);
 const header = JSON.parse(readFileSync(ctx.migratedFile, "utf8").split("\n")[0]);
-assert.equal(realpathSync(header.cwd), result.details.worktreePath);
+assert.equal(realpathSync.native(header.cwd), result.details.worktreePath);
 assert.equal(continuations.length, 1);
 assert.equal(continuations[0][0].customType, "worktree:message");
 assert.ok(continuations[0][0].content.includes(result.details.worktreePath));

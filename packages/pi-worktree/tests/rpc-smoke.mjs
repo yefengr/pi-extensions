@@ -35,7 +35,7 @@ if (scenario === "after-failure") {
   runGit(repo, "commit", "-qm", "hook");
 }
 
-const repoReal = realpathSync(repo);
+const repoReal = realpathSync.native(repo);
 if (scenario !== "ephemeral") {
   writeFileSync(
     sourceSession,
@@ -98,7 +98,7 @@ const piArgs = [
 const promptMessage = removeScenarios.has(scenario)
   ? `/worktree:remove ${JSON.stringify({
       repoPath: repoReal,
-      worktreePath: realpathSync(removeTarget),
+      worktreePath: realpathSync.native(removeTarget),
       confirmed: true,
       ...(scenario === "remove-keep" ? { keepBranch: true } : {}),
     })}`
@@ -114,7 +114,7 @@ let target;
 let targetBranch;
 const windowsHookRejection = scenario === "after-failure" && process.platform === "win32";
 if (createScenarios.has(scenario) && !windowsHookRejection) {
-  target = realpathSync(path.join(path.dirname(agentDir), "worktrees", targetName));
+  target = realpathSync.native(path.join(path.dirname(agentDir), "worktrees", targetName));
   targetBranch = runGit(target, "branch", "--show-current").trim();
   if (targetBranch !== branch) throw new Error(`目标分支不匹配：${targetBranch}`);
 }
@@ -123,7 +123,7 @@ if (scenario === "persistent" || scenario === "default-repo-path") {
   const migratedSessionFile = finalState.data.sessionFile;
   if (!migratedSessionFile || migratedSessionFile === sourceSession) throw new Error("持久会话未迁移");
   const header = JSON.parse(readFileSync(migratedSessionFile, "utf8").split("\n")[0]);
-  if (realpathSync(header.cwd) !== target) throw new Error(`迁移 header cwd 不匹配：${header.cwd}`);
+  if (realpathSync.native(header.cwd) !== target) throw new Error(`迁移 header cwd 不匹配：${header.cwd}`);
   if (header.parentSession !== sourceSession) throw new Error("parentSession 不匹配");
   const notice = findText(records, "Pi 会话已迁移到");
   if (!notice?.includes(target)) throw new Error("缺少迁移完成通知");

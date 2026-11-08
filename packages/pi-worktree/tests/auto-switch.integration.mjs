@@ -39,7 +39,7 @@ const server = createServer(async (request, response) => {
     if (step === 2) {
       const target = path.join(fixture, "worktrees", targetName);
       writeFileSync(path.join(target, "fixture-location.txt"),
-        `cwd=${realpathSync(target)}\nbranch=${git(target, "branch", "--show-current").trim()}\n`);
+        `cwd=${realpathSync.native(target)}\nbranch=${git(target, "branch", "--show-current").trim()}\n`);
     }
     const delta = step === 1
       ? toolDelta("fixture-create", "worktree_create", {
@@ -75,8 +75,8 @@ async function main() {
   writeFileSync(path.join(repo, "README.md"), "isolated synthetic fixture\n");
   git(repo, "add", "README.md");
   git(repo, "commit", "-qm", "fixture");
-  const sourceCwd = realpathSync(repo);
-  const targetCwd = path.join(realpathSync(fixture), "worktrees", targetName);
+  const sourceCwd = realpathSync.native(repo);
+  const targetCwd = path.join(realpathSync.native(fixture), "worktrees", targetName);
   writeFileSync(sourceSession, `${JSON.stringify({
     type: "session", version: 3, id: "33333333-3333-7333-8333-333333333333",
     timestamp: "2026-01-01T00:00:00.000Z", cwd: sourceCwd,
@@ -111,7 +111,7 @@ async function main() {
   const migratedFile = state.data.sessionFile;
   assert.ok(migratedFile && migratedFile !== sourceSession, "模型创建后未自动切换持久会话");
   const entries = jsonLines(migratedFile);
-  assert.equal(realpathSync(entries[0].cwd), realpathSync(targetCwd));
+  assert.equal(realpathSync.native(entries[0].cwd), realpathSync.native(targetCwd));
   assert.equal(entries[0].parentSession, sourceSession);
   assert.equal(git(targetCwd, "branch", "--show-current").trim(), targetBranch);
   const creation = entries.find((entry) => entry.type === "message"
@@ -121,7 +121,7 @@ async function main() {
   const location = entries.find((entry) => entry.type === "message"
     && entry.message.role === "toolResult" && entry.message.toolName === "read");
   assert.ok(location && !location.message.isError, "自动迁移后未继续在目标目录执行内置 read");
-  assert.ok(textOf(location.message.content).includes(`cwd=${realpathSync(targetCwd)}\nbranch=${targetBranch}`));
+  assert.ok(textOf(location.message.content).includes(`cwd=${realpathSync.native(targetCwd)}\nbranch=${targetBranch}`));
   const humanMessages = entries.filter((entry) => entry.type === "message" && entry.message.role === "user");
   assert.equal(humanMessages.length, 1, "自动交接不应伪造人类输入");
   assert.ok(textOf(humanMessages[0].message.content).includes(prompt));
@@ -143,7 +143,7 @@ async function main() {
   const back = await rpc.request("get_state");
   assert.notEqual(back.data.sessionFile, migratedFile, "无法从工作树返回主工作区");
   const backHeader = jsonLines(back.data.sessionFile)[0];
-  assert.equal(realpathSync(backHeader.cwd), sourceCwd);
+  assert.equal(realpathSync.native(backHeader.cwd), sourceCwd);
   assert.equal(backHeader.parentSession, migratedFile);
   const footerAfterBack = await renderFooter(back.data.sessionFile, "main");
   assert.ok(footerAfterBack.includes(await footerCwd(sourceCwd)));
