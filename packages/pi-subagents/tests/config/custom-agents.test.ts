@@ -1,23 +1,24 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_TOOL_NAMES } from "#src/config/agent-types";
 import { loadCustomAgents } from "#src/config/custom-agents";
 
 describe("loadCustomAgents", () => {
   let tmpDir: string;
-  let originalHome: string | undefined;
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "pi-test-"));
-    originalHome = process.env.HOME;
-    process.env.HOME = tmpDir;
+    // Pin global agent discovery to the temp dir: HOME/USERPROFILE cover the homedir
+    // fallback (Windows reads USERPROFILE), PI_CODING_AGENT_DIR pins getAgentDir() itself.
+    vi.stubEnv("HOME", tmpDir);
+    vi.stubEnv("USERPROFILE", tmpDir);
+    vi.stubEnv("PI_CODING_AGENT_DIR", join(tmpDir, ".pi", "agent"));
   });
 
   afterEach(() => {
-    if (originalHome == null) delete process.env.HOME;
-    else process.env.HOME = originalHome;
+    vi.unstubAllEnvs();
     rmSync(tmpDir, { recursive: true, force: true });
   });
 

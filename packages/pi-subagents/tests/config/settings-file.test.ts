@@ -56,10 +56,15 @@ describe("settings-file", () => {
     mkdirSync(join(dir, "nested"), { recursive: true });
     writeFileSync(file, JSON.stringify({ maxConcurrent: 4 }));
     chmodSync(file, 0o640);
+    // Windows cannot express POSIX 0640 through chmod, so the guarantee under test is
+    // "the mode the file really has is preserved" — not a POSIX-only literal.
+    const originalMode = lstatSync(file).mode & 0o777;
+    if (process.platform !== "win32") expect(originalMode).toBe(0o640);
 
     updateSettingsFile(file, (current) => ({ ...current, maxConcurrent: 6 }));
 
-    expect(lstatSync(file).mode & 0o777).toBe(0o640);
+    expect(lstatSync(file).mode & 0o777).toBe(originalMode);
+    expect(JSON.parse(readFileSync(file, "utf-8"))).toEqual({ maxConcurrent: 6 });
   });
 
   it("updates a symlink target without replacing the symlink", () => {
