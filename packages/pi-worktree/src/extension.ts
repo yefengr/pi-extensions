@@ -1,4 +1,5 @@
 import path from "node:path";
+import { StringEnum } from "@earendil-works/pi-ai";
 import {
   SessionManager,
   type ExtensionAPI,
@@ -37,9 +38,7 @@ const createSchema = Type.Object(
       Type.String({ description: "Git 仓库或其 linked worktree 内的绝对路径；缺省使用当前会话工作目录" }),
     ),
     name: Type.String({ description: "Pi 工作树根目录（默认 ~/.pi/worktrees）下的目录名，小写字母、数字和单连字符，最长 40 字符" }),
-    // Pi 1.5.1 起 `StringEnum` 返回 pi-schema 类型，与本地 typebox 不兼容；
-    // 这里直接声明等价的 `{ type: "string", enum: [...] }`。
-    mode: Type.Unsafe<CreateWorktreeInput["mode"]>({ type: "string", enum: WORKTREE_MODES }),
+    mode: StringEnum(WORKTREE_MODES),
     baseRef: Type.Optional(Type.String({ description: "new-branch 或 detached 模式的基准引用" })),
     branch: Type.Optional(Type.String({ description: "新建或已有本地分支名；detached 模式不得提供" })),
     setupHookApproved: Type.Optional(
