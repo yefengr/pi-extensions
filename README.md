@@ -52,6 +52,8 @@ Every visible difference follows from these rules; there are no exceptions.
 
 The native Windows 10/11 implementation and remaining client validation for Monitor and Worktree are documented in the [Windows compatibility adjustment plan](./docs/plans/windows-support.md) (Chinese). Monitor uses best-effort Windows process cleanup; Worktree's core needs no Bash, and Windows projects with `setup.sh` are rejected before creation.
 
+The proposed, not yet implemented upstream sync for subagents — in-process sessions, selective adoption of the gotgenes and tintinweb improvements, and same-parent-only cold recovery — is documented in the [Subagents upstream sync plan](./docs/plans/subagents-upstream-sync.md) (Chinese).
+
 ```bash
 npm install
 npm run verify       # typecheck + lint + tests + doc links + packed contents
