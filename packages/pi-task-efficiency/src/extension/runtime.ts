@@ -1,4 +1,3 @@
-import { StringEnum } from "@earendil-works/pi-ai";
 import {
   SessionManager,
   type ExtensionAPI,
@@ -50,6 +49,7 @@ import {
   SOURCE_ENTRY_TYPE,
   TERMINATION_ENTRY_TYPE,
   terminationForProposal,
+  type Confidence,
   type ProposalInput,
   type ReviewState,
   type ScopeProposal,
@@ -64,7 +64,10 @@ const scopeProposalSchema = Type.Object({
   excluded: Type.Array(Type.String()),
   rationale: Type.String(),
   evidenceEntryIds: Type.Array(Type.String()),
-  confidence: StringEnum(["high", "medium", "low"] as const),
+  // Pi 1.5.1 的 `StringEnum` 返回 pi-schema 类型，本包开发基线 typebox 1.4.2
+  // 无法据此推断静态类型，故直接声明等价的 `{ type: "string", enum: [...] }`，
+  // 保持对不支持 anyOf/const 的提供方（如 Google）仍然可用。
+  confidence: Type.Unsafe<Confidence>({ type: "string", enum: ["high", "medium", "low"] }),
 }, { additionalProperties: false });
 
 const scopePageSchema = Type.Object({

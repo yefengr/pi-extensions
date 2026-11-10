@@ -45,4 +45,4 @@ GitHub 标签、npm Registry 的 SLSA provenance 和 npm tarball 均指向或验
 
 后续同步上游时必须重新核对许可证、来源提交、实际差异和本地契约；不得直接用上游最新 HEAD 覆盖本地实现。
 - 2026-10 迁出 agent-tools，以当前包名 `@yefengr/pi-subagents` 发布到 npm，取消 private；版本从 `0.1.0` 继续独立演进，跨扩展服务身份为 `@yefengr/pi-subagents:service`，命令前缀和事件命名空间统一为 `subagents:`，配置文件名 `subagents.json` 保持不变。
-- 开发验证基线升级到 Pi `1.4.0` 与 `typebox` `1.3.27`，与当前运行环境一致；host 包仍以 `*` 声明 peer。
+- 开发验证基线升级到 Pi `1.5.1`；host 包仍以 `*` 声明 peer。

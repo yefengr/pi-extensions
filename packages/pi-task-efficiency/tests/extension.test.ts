@@ -1123,7 +1123,7 @@ test("manifest 与 skill 保持 package discovery 和受控复盘契约", async 
     "@earendil-works/pi-tui": "*",
     typebox: "*",
   });
-  assert.equal(packageJson.devDependencies["@earendil-works/pi-ai"], "1.4.0");
+  assert.equal(packageJson.devDependencies["@earendil-works/pi-ai"], "1.5.1");
   assert.match(skill, /^name: analyze-task-efficiency$/m);
   assert.match(skill, /\/task-efficiency/);
   assert.match(skill, /不要读取、扫描或请求原始 session 文件/);
