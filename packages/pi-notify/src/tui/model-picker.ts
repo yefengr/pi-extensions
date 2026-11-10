@@ -233,7 +233,7 @@ export class ModelPickerPage implements Component, Focusable {
 
   private currentIndex(): number {
     const index = this.filtered.findIndex((model) => modelRef(model) === this.selectedRef);
-    return index >= 0 ? index : 0;
+    return Math.max(index, 0);
   }
 
   private page(direction: 1 | -1): void {

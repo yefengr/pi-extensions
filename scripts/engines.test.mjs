@@ -7,6 +7,7 @@ import { PACKAGES } from "./release.mjs";
 test("Windows package jobs share Node limits and participate in the reusable required gate", async () => {
   const root = JSON.parse(await readFile("package.json", "utf8"));
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
+  // biome-ignore lint/complexity/noAdjacentSpacesInRegex: 两个空格是 YAML 缩进，必须原样匹配
   const windows = /^  windows:[\s\S]*?(?=^  verify:)/m.exec(workflow)?.[0];
   assert.ok(windows, "Windows checks must not be a separate optional workflow");
   assert.match(windows, /runs-on: windows-/);
@@ -17,8 +18,10 @@ test("Windows package jobs share Node limits and participate in the reusable req
     assert.ok(windows.includes(`npm run ${script} -w @yefengr/pi-monitor -w @yefengr/pi-worktree`));
   }
   assert.ok(windows.includes("npm test -w @yefengr/pi-monitor -w @yefengr/pi-worktree"));
+  // biome-ignore lint/complexity/noAdjacentSpacesInRegex: 两个空格是 YAML 缩进，必须原样匹配
   const gate = /^  verify:[\s\S]*$/m.exec(workflow)?.[0] ?? "";
   assert.match(gate, /needs: \[[^\]]*windows[^\]]*\]/);
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: 这是 GitHub Actions 表达式的字面量
   assert.ok(gate.includes("WINDOWS: ${{ needs.windows.result }}"));
   assert.ok(gate.includes('test "$WINDOWS" = success'));
   const release = await readFile(".github/workflows/release.yml", "utf8");
