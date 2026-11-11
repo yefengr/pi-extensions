@@ -100,22 +100,16 @@ export function applyStatusUpdate(
     return { state: current!, changed: false, createdTask: false };
   }
 
-  const enteringWaiting =
-    normalized.status === "waiting_for_user" && baseState.status !== normalized.status;
-  const enteringBlocked = normalized.status === "blocked" && baseState.status !== normalized.status;
-  const resumingCompleted =
-    baseState.status === "completed" && normalized.status !== "completed";
+  const statusChanged = baseState.status !== normalized.status;
+  const enteringWaiting = normalized.status === "waiting_for_user" && statusChanged;
+  const enteringBlocked = normalized.status === "blocked" && statusChanged;
   const waitingEscapeUsed = baseState.waitingEscapeUsed || enteringWaiting;
   const blockedEscapeUsed = baseState.blockedEscapeUsed || enteringBlocked;
-  const criticalEscapeAvailable =
-    (enteringWaiting && !baseState.waitingEscapeUsed) ||
-    (enteringBlocked && !baseState.blockedEscapeUsed) ||
-    resumingCompleted ||
-    normalized.status === "completed";
 
-  if (!startsNewTask && baseState.updatesUsed >= options.maxUpdatesPerTask && !criticalEscapeAvailable) {
+  // 次数限制普通更新，实际状态切换必须能反映等待、恢复与完成。
+  if (!startsNewTask && baseState.updatesUsed >= options.maxUpdatesPerTask && !statusChanged) {
     throw new StateUpdateError(
-      `当前任务已达到 ${options.maxUpdatesPerTask} 次更新上限，请等待新任务或仅在状态切换为 waiting_for_user、blocked、completed，或恢复已完成任务时更新`,
+      `当前任务已达到 ${options.maxUpdatesPerTask} 次普通更新上限，同一状态下不能继续修改名称、阶段或进度；实际状态切换仍可更新`,
     );
   }
 

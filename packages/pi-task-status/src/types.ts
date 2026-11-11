@@ -1,6 +1,6 @@
 export const TASK_STATUS_STATE_TYPE = "task-status-state";
 export const TASK_STATUS_STATE_VERSION = 1;
-export const DEFAULT_MAX_UPDATES = 10;
+export const DEFAULT_MAX_UPDATES = 20;
 export const MAX_STATUS_LENGTH = 120;
 
 export const TASK_STATUSES = [

@@ -60,11 +60,12 @@ function createExtensionHost(initialBranch: Entry[] = [], hasUI = true) {
   let activeTools = ["update_task_status"];
   let nameReads = 0;
   const nameWrites: string[] = [];
-  let failure: "get" | "set" | "marker" | "missing-info" | "race" | undefined;
+  let failure: "state" | "get" | "set" | "marker" | "missing-info" | "race" | undefined;
   const api = {
     registerTool: (tool: RegisteredTool) => tools.set(tool.name, tool),
     on: (event: string, handler: EventHandler) => handlers.set(event, handler),
     appendEntry(customType: string, data: unknown) {
+      if (customType === "task-status-state" && failure === "state") throw new Error("state 写入失败");
       if (customType === SESSION_NAME_OWNER_TYPE && failure === "marker") throw new Error("marker 写入失败");
       entries.push(session.append({ type: "custom", customType, data }));
     },
@@ -133,6 +134,8 @@ test("session_start 只恢复，接受工具更新才首次命名并独立保存
   assertNoNameAccess(host);
   const result = await host.execute({ taskTransition: "new" });
   assert.equal(result.isError, undefined);
+  assert.equal((result.details as { maxUpdatesPerTask: number }).maxUpdatesPerTask, 20);
+  assert.match(result.content[0].text!, /1\/20 次更新/);
   assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，10%）"));
   assert.equal(host.entries.length, 2);
   const state = host.entries[0].data as Record<string, unknown>;
@@ -248,7 +251,7 @@ test("首次进入 review 与未初始化 prompt 检测均不访问名称", asyn
 });
 
 test("非法、超限、同一用户消息二次 new 均不改名", async () => {
-  const host = createExtensionHost([stateEntry({ ...restoredState, updatesUsed: 10 })]);
+  const host = createExtensionHost([stateEntry({ ...restoredState, updatesUsed: 20 })]);
   for (const overrides of [
     { taskName: "" }, { progressPercent: 15 }, { status: "completed", progressPercent: 90 },
     { taskName: "超限任务" }, { taskTransition: "new", taskName: "错误切换" },
@@ -257,6 +260,68 @@ test("非法、超限、同一用户消息二次 new 均不改名", async () => 
   }
   assertNoNameAccess(host);
   assert.deepEqual(host.entries, []);
+});
+
+test("首次状态保存失败不刷新或命名，重试仍保存且只计一次", async () => {
+  const host = createExtensionHost();
+  await host.emit("session_start");
+  const statusCount = host.session.statusCalls.length;
+  host.failAt("state");
+  const failed = await host.execute();
+  assert.equal(failed.isError, true);
+  assert.match(failed.content[0].text!, /state 写入失败/);
+  assert.equal(host.session.statusCalls.length, statusCount);
+  assert.equal(host.entries.length, 0);
+  assert.equal(host.session.allEntries.length, 0);
+  assertNoNameAccess(host);
+
+  host.failAt(undefined);
+  const retried = await host.execute();
+  assert.equal(retried.isError, undefined);
+  assert.deepEqual({
+    changed: (retried.details as { changed: boolean }).changed,
+    createdTask: (retried.details as { createdTask: boolean }).createdTask,
+    updatesUsed: (retried.details as { updatesUsed: number }).updatesUsed,
+  }, { changed: true, createdTask: true, updatesUsed: 1 });
+  assert.equal(host.entries.filter((entry) => entry.customType === "task-status-state").length, 1);
+  assert.deepEqual(host.nameWrites, ["修复扩展"]);
+  assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，10%）"));
+  const repeated = await host.execute();
+  assert.equal((repeated.details as { changed: boolean }).changed, false);
+  assert.equal((repeated.details as { updatesUsed: number }).updatesUsed, 1);
+  assert.equal(host.entries.filter((entry) => entry.customType === "task-status-state").length, 1);
+});
+
+test("已有任务状态保存失败保留原任务、计数、展示和名称，重试不丢更新", async () => {
+  const host = createExtensionHost();
+  await host.execute();
+  const savedState = host.entries[0].data as typeof restoredState;
+  const entriesBefore = [...host.session.allEntries];
+  const statusCount = host.session.statusCalls.length;
+  const reads = host.session.entriesReads();
+  const nameReads = host.nameReads();
+  const input = { taskName: "保存后再改名", progressPercent: 20 };
+  host.failAt("state");
+  const failed = await host.execute(input);
+  assert.equal(failed.isError, true);
+  assert.deepEqual(host.session.allEntries, entriesBefore);
+  assert.equal(host.session.statusCalls.length, statusCount);
+  assert.equal(host.session.entriesReads(), reads);
+  assert.equal(host.nameReads(), nameReads);
+  assert.deepEqual(host.nameWrites, ["修复扩展"]);
+
+  host.failAt(undefined);
+  const retried = await host.execute(input);
+  assert.equal(retried.isError, undefined);
+  assert.equal((retried.details as { changed: boolean }).changed, true);
+  assert.equal((retried.details as { createdTask: boolean }).createdTask, false);
+  assert.equal((retried.details as { updatesUsed: number }).updatesUsed, 2);
+  const states = host.entries.filter((entry) => entry.customType === "task-status-state");
+  assert.equal(states.length, 2);
+  assert.equal((states[1].data as typeof restoredState).taskId, savedState.taskId);
+  assert.equal((states[1].data as typeof restoredState).updatesUsed, 2);
+  assert.deepEqual(host.nameWrites, ["修复扩展", "保存后再改名"]);
+  assert.equal(readStatusText(host), dimStatus("保存后再改名 · 进行中（实现，20%）"));
 });
 
 for (const failure of ["get", "set", "marker", "missing-info", "race"] as const) {

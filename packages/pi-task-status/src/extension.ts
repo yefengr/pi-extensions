@@ -23,6 +23,7 @@ import {
   StateUpdateError,
 } from "./state.ts";
 import {
+  DEFAULT_MAX_UPDATES,
   TASK_STATUSES,
   TASK_TRANSITIONS,
   TASK_STATUS_STATE_TYPE,
@@ -60,7 +61,7 @@ interface TaskStatusUpdateDetails {
 }
 
 export default function (pi: ExtensionAPI): void {
-  let config = { maxUpdatesPerTask: 10 };
+  let config = { maxUpdatesPerTask: DEFAULT_MAX_UPDATES };
   let currentState: TaskStatusState | undefined;
   let userGeneration = 0;
   let initialized = false;
@@ -87,9 +88,8 @@ export default function (pi: ExtensionAPI): void {
           createTaskId: randomUUID,
         });
         const statusText = formatTaskStatus(result.state);
-        currentState = result.state;
-
         if (result.changed) pi.appendEntry(TASK_STATUS_STATE_TYPE, result.state);
+        currentState = result.state;
         setStatus(ctx, statusText);
 
         let sessionNameWarning: string | undefined;

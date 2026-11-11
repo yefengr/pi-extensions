@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyStatusUpdate, countUserMessages, findLatestState } from "../src/state.ts";
+import { DEFAULT_MAX_UPDATES, type TaskStatus } from "../src/types.ts";
 
 const baseInput = {
   taskTransition: "new" as const,
@@ -10,7 +11,7 @@ const baseInput = {
   progressPercent: 10,
 };
 
-function options(userGeneration: number, maxUpdatesPerTask = 10) {
+function options(userGeneration: number, maxUpdatesPerTask = DEFAULT_MAX_UPDATES) {
   return {
     maxUpdatesPerTask,
     userGeneration,
@@ -52,15 +53,15 @@ test("same task continues without resetting update count", () => {
 });
 
 test("new task requires a later user message and resets the counter", () => {
-  const first = applyStatusUpdate(baseInput, undefined, options(1));
+  const first = applyStatusUpdate(baseInput, undefined, options(1, 1));
   assert.throws(
-    () => applyStatusUpdate(baseInput, first.state, options(1)),
+    () => applyStatusUpdate(baseInput, first.state, options(1, 1)),
     /同一条用户消息/,
   );
 
-  const next = applyStatusUpdate(baseInput, first.state, options(2));
+  const next = applyStatusUpdate(baseInput, first.state, { ...options(2, 1), createTaskId: () => "task-2" });
   assert.equal(next.createdTask, true);
-  assert.equal(next.state.taskId, "task-1");
+  assert.equal(next.state.taskId, "task-2");
   assert.equal(next.state.updatesUsed, 1);
 });
 
@@ -99,7 +100,7 @@ test("completed task can resume without changing task identity", () => {
   );
 });
 
-test("waiting and blocked can cross the hard limit once", () => {
+test("waiting entry may exceed the limit while same-status edits remain limited", () => {
   let state = applyStatusUpdate(baseInput, undefined, options(1, 2)).state;
   state = applyStatusUpdate({ ...baseInput, taskTransition: "continue", progressPercent: 20 }, state, options(1, 2)).state;
   const waiting = applyStatusUpdate(
@@ -131,6 +132,52 @@ test("waiting and blocked can cross the hard limit once", () => {
     /更新上限/,
   );
 });
+
+for (const limit of [1, 2]) {
+  test(`超限后反复等待、阻塞、恢复与完成保留任务和 v1 记录（上限 ${limit}）`, () => {
+    const opts = options(1, limit);
+    let state = applyStatusUpdate(baseInput, undefined, opts).state;
+    if (limit === 2) {
+      state = applyStatusUpdate({ ...baseInput, taskTransition: "continue", progressPercent: 20 }, state, opts).state;
+    }
+    const statuses: TaskStatus[] = [
+      "waiting_for_user", "in_progress", "blocked", "in_progress",
+      "waiting_for_user", "blocked", "completed", "in_progress", "blocked", "completed",
+    ];
+    for (const [index, status] of statuses.entries()) {
+      const result = applyStatusUpdate({
+        ...baseInput, taskTransition: "continue", status,
+        progressPercent: status === "completed" ? 100 : 20,
+      }, state, opts);
+      assert.equal(result.changed, true);
+      assert.equal(result.createdTask, false);
+      assert.equal(result.state.taskId, "task-1");
+      assert.equal(result.state.status, status);
+      assert.equal(result.state.updatesUsed, limit + index + 1);
+      const restored = findLatestState([statusEntry(JSON.parse(JSON.stringify(result.state)))]);
+      assert.deepEqual(restored, result.state);
+      state = restored!;
+    }
+    assert.equal(state.version, 1);
+    assert.equal(state.waitingEscapeUsed, true);
+    assert.equal(state.blockedEscapeUsed, true);
+  });
+}
+
+for (const status of ["in_progress", "waiting_for_user", "blocked", "completed"] as const) {
+  test(`超限后 ${status} 的同状态修改被拒绝，原样重试不计数`, () => {
+    const input = { ...baseInput, taskTransition: "continue" as const, status, progressPercent: status === "completed" ? 100 : 10 };
+    const opts = options(1, 1);
+    const state = applyStatusUpdate(input, undefined, opts).state;
+    const unchanged = applyStatusUpdate(input, state, opts);
+    assert.equal(unchanged.changed, false);
+    assert.equal(unchanged.state, state);
+    assert.equal(unchanged.state.updatesUsed, 1);
+    for (const change of [{ taskName: "改名" }, { phase: "改阶段" }, ...(status === "completed" ? [] : [{ progressPercent: 20 }])]) {
+      assert.throws(() => applyStatusUpdate({ ...input, ...change }, state, opts), /普通更新上限/);
+    }
+  });
+}
 
 test("latest valid state is restored from the active branch", () => {
   const state = applyStatusUpdate(baseInput, undefined, options(1)).state;
