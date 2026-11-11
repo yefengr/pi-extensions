@@ -9,6 +9,7 @@ export const PACKAGES = Object.freeze([
   { directory: "pi-notify", name: "@yefengr/pi-notify" },
   { directory: "pi-monitor", name: "@yefengr/pi-monitor" },
   { directory: "pi-task-efficiency", name: "@yefengr/pi-task-efficiency" },
+  { directory: "pi-task-status", name: "@yefengr/pi-task-status" },
   { directory: "pi-subagents", name: "@yefengr/pi-subagents" },
   { directory: "pi-worktree", name: "@yefengr/pi-worktree" },
 ].map(Object.freeze));

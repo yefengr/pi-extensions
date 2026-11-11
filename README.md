@@ -9,6 +9,7 @@
 | [`@yefengr/pi-notify`](./packages/pi-notify) | Desktop notifications through native terminal OSC protocols, with no system notification helper | Published |
 | [`@yefengr/pi-monitor`](./packages/pi-monitor) | Background command monitoring with one-shot or continuous checks, notification-only or explained delivery | Published |
 | [`@yefengr/pi-task-efficiency`](./packages/pi-task-efficiency) | Task efficiency review with scope confirmation, deterministic metrics, and actionable suggestions | Published |
+| [`@yefengr/pi-task-status`](./packages/pi-task-status) | Model-maintained task status, progress, and automatic session names | Not yet published |
 | [`@yefengr/pi-subagents`](./packages/pi-subagents) | In-process subagent runtime with background execution, steering, resume, and lifecycle events | Published |
 | [`@yefengr/pi-worktree`](./packages/pi-worktree) | Managed Git worktrees, persistent session migration, and one-time task continuation | [npm](https://www.npmjs.com/package/@yefengr/pi-worktree) |
 
@@ -38,13 +39,14 @@ Naming is layered: the capability root stays fixed, while each layer uses the wo
 5. Event, record, and log namespace: `<capability>:*`; log paths use the capability as the directory name. Cross-package service keys use `@yefengr/pi-<capability>:service`, because `Symbol.for` requires global uniqueness.
 6. Skill: `<action>-<capability>`. The `pi-` package prefix never appears in a skill name.
 
-Every visible difference follows from these rules; there are no exceptions.
+New interfaces follow these rules. The migrated `task-status` package retains its existing tool and record names for compatibility with existing sessions.
 
 | Capability | Package | Command | Tool | Event / record | Skill |
 |---|---|---|---|---|---|
 | notify | `pi-notify` | `notify:*` | `notify_user` | `notify:*` | — |
 | monitor | `pi-monitor` | `monitor` | `monitor` | `.pi/logs/monitor` | `wait-monitor` |
 | task-efficiency | `pi-task-efficiency` | `task-efficiency` | `task_efficiency_*` | `task-efficiency:*` | `analyze-task-efficiency` |
+| task-status | `pi-task-status` | — | `update_task_status` | `task-status-state`, `task-status-session-name` | — |
 | subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | `orchestrate-subagents` |
 | worktree | `pi-worktree` | `worktree:*` | `worktree_*` | `worktree:message` | — |
 
@@ -64,7 +66,7 @@ npm run test:contracts # real producer-to-consumer compatibility checks
 npm run check:docs
 ```
 
-Use the Node version from `.node-version` for development (for example `nvm use` or `fnm use`). Node 22.19 remains the minimum supported version. `npm run verify` is the same entry point Ubuntu CI uses; CI runs it on both the `.node-version` runtime and Node 22.19, the minimum version declared in `engines`. Separate Windows Server jobs validate Monitor, Worktree and Subagents on both runtimes (Monitor and Worktree include real tarball smoke tests) and feed the same required `verify` gate. They do not replace Windows 10/11 client acceptance or claim Windows support for every package. Verify a single package:
+Use the Node version from `.node-version` for development (for example `nvm use` or `fnm use`). Node 22.19 remains the minimum supported version. `npm run verify` is the same entry point Ubuntu CI uses; CI runs it on both the `.node-version` runtime and Node 22.19, the minimum version declared in `engines`. Separate Windows Server jobs validate Monitor, Worktree, Subagents and Task Status on both runtimes (Monitor and Worktree include real tarball smoke tests) and feed the same required `verify` gate. They do not replace Windows 10/11 client acceptance or claim Windows support for every package. Verify a single package:
 
 ```bash
 npm test -w @yefengr/pi-monitor
@@ -113,7 +115,7 @@ npm version patch --workspace @yefengr/pi-notify --no-git-tag-version
 
 Commit the updated `package.json` and `package-lock.json`, then push to `main`. The workflow compares versions with the push's previous commit and checks the exact versions on the npm registry. Already-public versions are skipped; registry errors stop the workflow rather than being treated as unpublished versions.
 
-For unpublished candidates, the reusable CI checks run the complete Ubuntu suite and the Monitor/Worktree/Subagents Windows jobs on both the `.node-version` runtime and Node 22.19, the minimum supported version. Each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) then run on the `.node-version` runtime. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
+For unpublished candidates, the reusable CI checks run the complete Ubuntu suite and the Monitor/Worktree/Subagents/Task Status Windows jobs on both the `.node-version` runtime and Node 22.19, the minimum supported version. Each package's existing `prepublishOnly` checks and `npm pack` (including `prepack`) then run on the `.node-version` runtime. A separate OIDC job validates the uploaded tarball's identity and submits that tarball with `npm stage publish`; it does not install dependencies or run package lifecycle scripts.
 
 After a successful staging run, a `tag` job creates the annotated tag `<package-directory>-v<version>` (for example `pi-notify-v0.3.4`) on the release commit. It holds only `contents: write`, separately from the `id-token: write` used by the staging job. If the job fails, create an annotated tag at that commit by hand; do not rerun the release workflow, because that would stage the same version again. The scheduled release workflow creates the GitHub Release after npm approval.
 

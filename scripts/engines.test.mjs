@@ -14,7 +14,7 @@ test("Windows package jobs share Node limits and participate in the reusable req
   assert.match(windows, /runtime: \[primary, minimum\]/);
   assert.match(windows, /node-version-file: \.node-version/);
   assert.equal(/node-version: "([^"]+)"/.exec(windows)?.[1], root.engines.node.replace(/^>=/, ""));
-  const windowsPackages = ["pi-monitor", "pi-worktree", "pi-subagents"];
+  const windowsPackages = ["pi-monitor", "pi-worktree", "pi-subagents", "pi-task-status"];
   for (const script of ["typecheck", "lint", "test"]) {
     const command = new RegExp(`^\\s*run: npm (?:run )?${script} .*$`, "m").exec(windows)?.[0];
     assert.ok(command, `windows job must run ${script}`);

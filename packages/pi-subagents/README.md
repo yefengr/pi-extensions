@@ -289,6 +289,15 @@ When [`@gotgenes/pi-permission-system`](https://github.com/gotgenes/pi-permissio
 No configuration is required.
 When `@gotgenes/pi-permission-system` is not installed, the lifecycle events have no subscriber — a harmless no-op.
 
+## Inherited prompt scope
+
+When a structured parent prompt is available, subagents rebuild it for the child instead of reusing rendered text.
+The extension-owned `task_status` and `agent_browser` sections are kept only when the child can use the corresponding tools; sections sourced from users and other extensions, APPEND text, project instructions, skills, and general guidelines are preserved as written.
+The child identity also ends with a short statement of its directly available tools.
+At each model request, that statement and the known tool-owned sections are aligned with the SDK's final visible and callable tools; user-provided plain text is preserved.
+This alignment projects the request only: `session.systemPrompt` and persisted messages retain their source representation.
+That statement clarifies capability only: it does not grant access, and a tool name mentioned in prompt text is not a permission.
+
 ## For Extension Authors
 
 This package exposes two public subpath exports for companion extensions. `npm pack` verifies that its declarations are independently consumable.

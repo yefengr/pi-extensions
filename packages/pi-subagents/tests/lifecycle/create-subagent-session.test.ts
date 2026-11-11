@@ -1,3 +1,4 @@
+import type { AgentSession, BuildSystemPromptOptions, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSubagentSession } from "#src/lifecycle/create-subagent-session";
 import { SubagentSession } from "#src/lifecycle/subagent-session";
@@ -133,6 +134,7 @@ describe("createSubagentSession — assembly", () => {
   });
 
   it("inherits same-directory trust and uses only the target's existing decision across cwd", async () => {
+    Object.assign(session, { agent: { transformContext: undefined } });
     for (const [cwd, trusted] of [[STUB_SNAPSHOT.cwd, true], ["/different-worktree", false], ["/approved-worktree", true]] as const) {
       io.createSettingsManager.mockClear();
       const snapshot = { ...STUB_SNAPSHOT, projectTrusted: true, promptOptions: { cwd: STUB_SNAPSHOT.cwd } };
@@ -145,6 +147,51 @@ describe("createSubagentSession — assembly", () => {
       expect(options.noContextFiles).toBe(false);
       expect(options.appendSystemPromptOverride(["target rules"])).toEqual(["target rules"]);
     }
+  });
+
+  it("wraps the SDK transform once, awaits it with its signal, and rebinds on reload", async () => {
+    const signal = new AbortController().signal;
+    const transformed: AgentSession["messages"] = [{ role: "system", content: "", sections: {
+      subagent_identity: "old identity", agent_browser: "stale browser", operator: "keep operator",
+    }, toolsAdded: [], timestamp: 0 }];
+    const original = vi.fn(async () => transformed);
+    const agent = { transformContext: original as AgentSession["agent"]["transformContext"] };
+    Object.assign(session, {
+      agent, getCallableToolNames: () => [], getActiveToolNames: () => [],
+    });
+    await createSubagentSession({
+      snapshot: { ...STUB_SNAPSHOT, promptOptions: { cwd: STUB_SNAPSHOT.cwd, sections: { agent_browser: "parent browser" } } },
+      type: "Explore",
+    }, defaultDeps());
+    const factory = io.createResourceLoader.mock.lastCall?.[0].extensionFactories.at(-1) as ExtensionFactory;
+    let handler: ((event: { systemPromptOptions: BuildSystemPromptOptions }) => void) | undefined;
+    const load = (body: string) => {
+      factory({
+        on: (_event: string, next: typeof handler) => { handler = next; }, getAllTools: () => [],
+      } as unknown as Parameters<ExtensionFactory>[0]);
+      handler?.({ systemPromptOptions: { cwd: STUB_SNAPSHOT.cwd, selectedTools: [], sections: { agent_browser: body } } });
+    };
+    load("first body");
+    const wrapper = agent.transformContext;
+    const input: AgentSession["messages"] = [{ role: "user", content: "user text", timestamp: 1 }];
+    const before = structuredClone(transformed);
+    const first = await wrapper?.(input, signal);
+    expect(original).toHaveBeenCalledExactlyOnceWith(input, signal);
+    expect(first?.[0]).toMatchObject({ sections: { operator: "keep operator", subagent_identity: expect.stringContaining("none.") } });
+    expect(transformed).toEqual(before);
+    Object.assign(session, { getCallableToolNames: () => ["agent_browser_preview"] });
+    load("reloaded body");
+    const second = await agent.transformContext?.(input, signal);
+    expect(agent.transformContext).toBe(wrapper);
+    expect(second?.[0]).toMatchObject({ sections: { agent_browser: "<agent_browser>\nreloaded body\n</agent_browser>" } });
+  });
+
+  it("keeps the SDK transform untouched on the legacy unstructured path", async () => {
+    const original = vi.fn();
+    const agent = { transformContext: original };
+    Object.assign(session, { agent });
+    await createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, defaultDeps());
+    expect(agent.transformContext).toBe(original);
   });
 
   it("rejects unverified cross-directory APPEND scope before creating an SDK session", async () => {
