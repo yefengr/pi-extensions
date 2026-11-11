@@ -123,10 +123,10 @@ TS
 
 npm install --prefix "$CONSUMER" --ignore-scripts --no-audit --no-fund \
   "$TARBALL" \
-  "@earendil-works/pi-ai@1.4.0" \
-  "@earendil-works/pi-coding-agent@1.4.0" \
-  "@earendil-works/pi-tui@1.4.0" \
-  "typebox@1.3.7" \
+  "@earendil-works/pi-ai@1.5.1" \
+  "@earendil-works/pi-coding-agent@1.5.1" \
+  "@earendil-works/pi-tui@1.5.1" \
+  "typebox@1.4.5" \
   >/dev/null
 
 TSC_BIN="$(command -v tsc || true)"

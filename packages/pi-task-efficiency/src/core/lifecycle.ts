@@ -23,6 +23,8 @@ export interface LifecycleRecord {
   readonly startedAt: number;
   readonly completedAt: number;
   readonly invocationToolUses: number;
+  /** Only v3 proves a zero-turn invocation; absent on historical v2. */
+  readonly invocationTurnCount?: number;
   readonly invocationUsage: LifecycleUsage;
 }
 
@@ -61,6 +63,7 @@ export function parseLifecycleRecord(value: unknown): { record: LifecycleRecord 
       startedAt: value.startedAt as number,
       completedAt: value.completedAt as number,
       invocationToolUses: value.invocationToolUses as number,
+      ...(value.recordVersion === 3 ? { invocationTurnCount: value.invocationTurnCount as number } : {}),
       invocationUsage: selectUsage(value.invocationUsage as LifecycleUsage),
     },
   };

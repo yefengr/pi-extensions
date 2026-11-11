@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { getEventListeners } from "node:events";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import {
 	GetResultTool,
@@ -17,12 +18,79 @@ function makeManager(records: Map<string, Subagent> = new Map()): GetResultToolM
 
 async function execute(
 	manager: GetResultToolManager,
-	params: { agent_id: string; wait?: boolean; verbose?: boolean },
+	params: { agent_id: string; wait?: boolean; verbose?: boolean; timeout_seconds?: number },
 	signal: AbortSignal = new AbortController().signal,
 ) {
 	const tool = new GetResultTool(manager, testRegistry);
 	return tool.execute("tc-1", params, signal, undefined, STUB_CTX);
 }
+
+describe("GetResultTool query deadlines", () => {
+	afterEach(() => { vi.useRealTimers(); });
+
+	function queued() {
+		const slot = Promise.withResolvers<void>();
+		const record = createTestSubagent({ phase: "queued", completedAt: undefined, invocationTurnCount: 0 });
+		record.scheduleVia(async (thunk) => { await slot.promise; await thunk(); });
+		return { record, slot, manager: makeManager(new Map([[record.id, record]])) };
+	}
+
+	it("ends the query at its deadline without cancelling, consuming or changing execution budgets", async () => {
+		vi.useFakeTimers();
+		const { record, slot, manager } = queued();
+		const abort = vi.spyOn(record, "abort");
+		const limits = [record.maxTurns, record.maxDurationSeconds];
+		const parent = new AbortController();
+		let returned = false;
+		const pending = execute(manager, { agent_id: record.id, wait: true, timeout_seconds: 2 }, parent.signal)
+			.then((result) => { returned = true; return result; });
+		await vi.advanceTimersByTimeAsync(1999);
+		expect(returned).toBe(false);
+		await vi.advanceTimersByTimeAsync(1);
+		expect((await pending).content[0].text).toContain("Wait timed out after 2 seconds");
+		expect(record.phase).toBe("queued");
+		expect(record.consumed).toBe(false);
+		expect(abort).not.toHaveBeenCalled();
+		expect([record.maxTurns, record.maxDurationSeconds]).toEqual(limits);
+		expect(getEventListeners(parent.signal, "abort")).toHaveLength(0);
+		expect(vi.getTimerCount()).toBe(0);
+		slot.resolve();
+		await record.promise;
+		expect(record.outcome).toBe("completed");
+		expect(record.consumed).toBe(false);
+	});
+
+	it("uses the independent 60 second default", async () => {
+		vi.useFakeTimers();
+		const { record, slot, manager } = queued();
+		const pending = execute(manager, { agent_id: record.id, wait: true });
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect((await pending).content[0].text).toContain("Wait timed out after 60 seconds");
+		slot.resolve();
+		await record.promise;
+	});
+
+	it("cleans the deadline timer and parent listener on query interruption", async () => {
+		vi.useFakeTimers();
+		const { record, slot, manager } = queued();
+		const parent = new AbortController();
+		const pending = execute(manager, { agent_id: record.id, wait: true }, parent.signal);
+		parent.abort();
+		expect((await pending).content[0].text).toContain("Status: queued");
+		expect(vi.getTimerCount()).toBe(0);
+		expect(getEventListeners(parent.signal, "abort")).toHaveLength(0);
+		expect(record.phase).toBe("queued");
+		slot.resolve();
+		await record.promise;
+	});
+
+	it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 3601])("rejects invalid query timeout %s", async (timeout_seconds) => {
+		const record = createTestSubagent();
+		const result = await execute(makeManager(new Map([[record.id, record]])), { agent_id: record.id, timeout_seconds });
+		expect(result.content[0].text).toContain("timeout_seconds must be an integer");
+		expect(record.consumed).toBe(false);
+	});
+});
 
 describe("GetResultTool", () => {
 	it("returns tool definition with correct name", () => {

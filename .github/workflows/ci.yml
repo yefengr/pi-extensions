@@ -3,7 +3,7 @@
 # - docs：检查改动的空白错误和已跟踪文档的站内链接；所有改动都运行。
 # - checks：在 `.node-version` 运行时上运行根 verify（typecheck、各包与脚本 lint、全部测试含跨包契约、文档链接、打包内容）。
 # - compat：在 Node 22.19（根 package.json engines 的下限）上运行同一套 verify，防止主版本升级掩盖最低版本回归。
-# - windows：Windows Server 上验证 Monitor/Worktree 的主运行时与最低 Node（含真实打包 smoke），不代替 Win10/Win11 客户端验收。
+# - windows：Windows Server 上验证 Monitor、Worktree 与 Subagents 的主运行时与最低 Node（Monitor/Worktree 含真实打包 smoke），不代替 Win10/Win11 客户端验收。
 # - verify：汇总以上任务，是 main 分支保护要求的唯一检查；任一任务失败、取消或意外跳过都会使其失败。
 # release.yml 通过 workflow_call 复用本工作流，因此不要在这里依赖仅 push 事件存在的上下文。
 name: CI
@@ -172,13 +172,13 @@ jobs:
           tar --version
 
       - name: Typecheck Windows packages
-        run: npm run typecheck -w @yefengr/pi-monitor -w @yefengr/pi-worktree
+        run: npm run typecheck -w @yefengr/pi-monitor -w @yefengr/pi-worktree -w @yefengr/pi-subagents
 
       - name: Lint Windows packages
-        run: npm run lint -w @yefengr/pi-monitor -w @yefengr/pi-worktree
+        run: npm run lint -w @yefengr/pi-monitor -w @yefengr/pi-worktree -w @yefengr/pi-subagents
 
       - name: Test Windows packages and real tarballs
-        run: npm test -w @yefengr/pi-monitor -w @yefengr/pi-worktree
+        run: npm test -w @yefengr/pi-monitor -w @yefengr/pi-worktree -w @yefengr/pi-subagents
 
   verify:
     name: verify

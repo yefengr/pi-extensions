@@ -9,6 +9,7 @@
  *   svc?.spawn("general-purpose", "Check for stale TODOs");
  */
 
+import type { SubagentProgress } from "#src/lifecycle/progress";
 import type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent";
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import type {
@@ -24,6 +25,7 @@ import type { SubagentInvocationIdentity } from "#src/types";
 // SubagentPhase/SubagentOutcome are defined in the lifecycle layer (single home)
 // and re-exported here for the public API surface — mirrors the LifetimeUsage /
 // workspace pattern.
+export type { SubagentProgress } from "#src/lifecycle/progress";
 export type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent";
 // Generative extension seam (ADR 0002, Phase 16 Step 2). The provider type
 // and all four collaborator types it references are re-exported by name so
@@ -67,6 +69,8 @@ export interface SubagentRecord {
   maxTurns: number;
   wrapUpTurns: number;
   maxDurationSeconds: number;
+  /** Snapshot of observed activity; does not predict whether execution is stalled. */
+  progress?: SubagentProgress;
 }
 
 /** Options for spawning an agent via the service. */

@@ -264,7 +264,7 @@ function analyzeChildWindows(
     const selectedTurns = new Map<string, InternalTurn>();
     for (const record of sessionRecords) {
       const matching = turns.filter((turn) => intersectsTurn(turn, record));
-      if (matching.length === 0) {
+      if (matching.length === 0 && !isZeroExecutionResume(record)) {
         issues.add("empty_child_window");
         settled = false;
         windowsComplete = false;
@@ -444,6 +444,15 @@ function validateStableIdentity(records: readonly LifecycleRecord[], issues: Set
   for (const sessionRecords of bySession.values()) {
     if (new Set(sessionRecords.map((record) => record.id)).size > 1) issues.add("conflicting_agent_identity");
   }
+}
+
+/** A cancelled/expired queued resume can legitimately add no child turn. Missing
+ * transcripts still fail discovery; missing or nonzero metrics never prove zero. */
+function isZeroExecutionResume(record: LifecycleRecord): boolean {
+  return record.recordVersion === 3 && record.invocationKind === "resume" && record.isBackground
+    && (record.status === "cancelled" || record.status === "queue_timeout")
+    && record.invocationTurnCount === 0 && record.invocationToolUses === 0
+    && Object.values(record.invocationUsage).every((value) => value === 0);
 }
 
 function matchesInvocationUsage(record: LifecycleRecord, analysis: UsageAnalysis): boolean {

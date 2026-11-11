@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	isActivePhase,
 	isRunningPhase,
@@ -17,6 +17,35 @@ const ALL_OUTCOMES: SubagentOutcome[] = [
 	"cancelled",
 	"error",
 ];
+
+describe("SubagentState — observed progress", () => {
+  it("records only running activity, never invents time on transitions and clears it at admission", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+    try {
+      const state = new SubagentState({ phase: "terminal", responseText: "old", activeTools: ["read"], lifetimeTurnCount: 8 });
+      expect(state.lastProgressAt).toBeUndefined();
+      state.noteProgress("model");
+      expect(state.lastProgressAt).toBeUndefined();
+      state.resetForResume(100, "queued");
+      expect(state.responseText).toBe("");
+      expect(state.activeTools.size).toBe(0);
+      expect(state.lifetimeTurnCount).toBe(8);
+      state.noteProgress("tool");
+      state.markRunning(200);
+      expect(state.lastProgressAt).toBeUndefined();
+      state.noteProgress("model");
+      expect(state.lastProgressAt).toBe(100);
+      expect(state.observedActivity).toBe("model");
+      state.markCompleted("done");
+      clock.mockReturnValue(300);
+      state.noteProgress("response");
+      expect(state.lastProgressAt).toBe(100);
+      state.resetForResume(400);
+      expect(state.lastProgressAt).toBeUndefined();
+      expect(state.observedActivity).toBeUndefined();
+    } finally { clock.mockRestore(); }
+  });
+});
 
 describe("SubagentState — constructor", () => {
 	it("defaults phase to 'queued' with no outcome", () => {

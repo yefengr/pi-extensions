@@ -34,6 +34,21 @@ export function subscribeSubagentObserver(
   options?: SubagentObserverOptions,
 ): () => void {
   return session.subscribe((event) => {
+    if (event.type === "turn_start") state.noteProgress("model");
+    if (event.type === "compaction_start" || event.type === "compaction_end") {
+      state.noteProgress(event.type === "compaction_start" ? "compacting" : "model");
+    }
+    if (event.type === "tool_execution_start" || event.type === "tool_execution_update" || event.type === "tool_execution_end") {
+      state.noteProgress("tool");
+    }
+    if (event.type === "message_start" && event.message?.role === "assistant") state.noteProgress("response");
+    if (event.type === "message_update") {
+      const type = event.assistantMessageEvent.type;
+      if (type === "text_start" || type === "text_delta" || type === "text_end" || type === "done") state.noteProgress("response");
+      else if (type === "thinking_start" || type === "thinking_delta" || type === "thinking_end") state.noteProgress("model");
+    }
+    if (event.type === "message_end" && event.message.role === "assistant") state.noteProgress("response");
+
     if (event.type === "tool_execution_start") {
       state.addActiveTool(event.toolName);
     }

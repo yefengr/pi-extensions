@@ -7,6 +7,7 @@
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { AgentConfigLookup } from "#src/config/agent-types";
+import type { SubagentProgress } from "#src/lifecycle/progress";
 import type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent-state";
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import { getLifetimeTotal } from "#src/lifecycle/usage";
@@ -14,6 +15,7 @@ import type { SubagentType } from "#src/types";
 import {
 	describeActivity,
 	formatMs,
+	formatObservedActivity,
 	formatSessionTokens,
 	formatTurns,
 	getDisplayName,
@@ -45,6 +47,7 @@ export interface WidgetAgent {
 	readonly responseText: string;
 	/** Context-window utilisation (0–100), or null when unavailable. */
 	readonly contextPercent: number | null;
+	readonly progress?: SubagentProgress;
 }
 
 // ── Per-agent rendering ──────────────────────────────────────────────────────
@@ -106,10 +109,12 @@ export function renderRunningLines(
 	const statsText = parts.join(" · ");
 
 	const frame = SPINNER[spinnerFrame % SPINNER.length];
-	const activityText = describeActivity(agent.activeTools, agent.responseText);
+	const activityText = agent.progress ? formatObservedActivity(agent.progress.activity) : describeActivity(agent.activeTools, agent.responseText);
+	const progressAge = agent.progress?.sinceLastProgressMs;
+	const recentProgress = progressAge === undefined ? "" : ` · 最近进展：${formatMs(progressAge)}前`;
 
 	const header = `${theme.fg("accent", frame)} ${theme.bold(name)}${modeTag}  ${theme.fg("muted", agent.description)} ${theme.fg("dim", "·")} ${theme.fg("dim", statsText)}`;
-	const activityLine = theme.fg("dim", `  ${GLYPHS.subLine}  ${activityText}`);
+	const activityLine = theme.fg("dim", `  ${GLYPHS.subLine}  ${activityText}${recentProgress}`);
 
 	return [header, activityLine];
 }

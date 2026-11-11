@@ -9,6 +9,7 @@ describe("SessionLifecycleHandler", () => {
   let mockClearSessionContext: ReturnType<typeof vi.fn<LifecycleRuntime["clearSessionContext"]>>;
   let mockClearCompleted: ReturnType<typeof vi.fn<LifecycleManager["clearCompleted"]>>;
   let mockAbortAll: ReturnType<typeof vi.fn<LifecycleManager["abortAll"]>>;
+  let mockSettleInvocations: ReturnType<typeof vi.fn<LifecycleManager["settleInvocations"]>>;
   let mockDispose: ReturnType<typeof vi.fn<LifecycleManager["dispose"]>>;
   let mockDisposeNotifications: ReturnType<typeof vi.fn<() => void>>;
   let mockUnpublishService: ReturnType<typeof vi.fn<() => void>>;
@@ -19,6 +20,7 @@ describe("SessionLifecycleHandler", () => {
     mockClearSessionContext = vi.fn();
     mockClearCompleted = vi.fn(() => Promise.resolve());
     mockAbortAll = vi.fn();
+    mockSettleInvocations = vi.fn(() => Promise.resolve());
     mockDispose = vi.fn(() => Promise.resolve());
     mockDisposeNotifications = vi.fn();
     mockUnpublishService = vi.fn();
@@ -30,6 +32,7 @@ describe("SessionLifecycleHandler", () => {
     manager = {
       clearCompleted: mockClearCompleted,
       abortAll: mockAbortAll,
+      settleInvocations: mockSettleInvocations,
       dispose: mockDispose,
     };
 
@@ -128,6 +131,7 @@ describe("SessionLifecycleHandler", () => {
         callOrder.push("abortAll");
       });
       mockDisposeNotifications.mockImplementation(() => { callOrder.push("disposeNotifications"); });
+      mockSettleInvocations.mockImplementation(async () => { callOrder.push("settleInvocations"); });
       mockDispose.mockImplementation(() => {
         callOrder.push("dispose");
         return Promise.resolve();
@@ -140,11 +144,31 @@ describe("SessionLifecycleHandler", () => {
       // cannot recall a message already handed to it.
       expect(callOrder).toEqual([
         "unpublishService",
-        "clearSessionContext",
         "disposeNotifications",
         "abortAll",
+        "settleInvocations",
         "dispose",
+        "clearSessionContext",
       ]);
+    });
+
+    it("keeps context and postpones disposal until aborted invocation waiters settle", async () => {
+      const settling = Promise.withResolvers<void>();
+      mockSettleInvocations.mockReturnValue(settling.promise);
+      const pending = handler.handleSessionShutdown();
+      expect(mockAbortAll).toHaveBeenCalledOnce();
+      expect(mockDispose).not.toHaveBeenCalled();
+      expect(mockClearSessionContext).not.toHaveBeenCalled();
+      settling.resolve();
+      await pending;
+      expect(mockDispose).toHaveBeenCalledOnce();
+      expect(mockClearSessionContext).toHaveBeenCalledOnce();
+    });
+
+    it("clears context even when manager disposal rejects", async () => {
+      mockDispose.mockRejectedValue(new Error("dispose failed"));
+      await expect(handler.handleSessionShutdown()).rejects.toThrow("dispose failed");
+      expect(mockClearSessionContext).toHaveBeenCalledOnce();
     });
 
     it("resolves only after every child session has shut down", async () => {
@@ -157,6 +181,7 @@ describe("SessionLifecycleHandler", () => {
       });
       await Promise.resolve();
       expect(settled).toBe(false);
+      expect(mockClearSessionContext).not.toHaveBeenCalled();
 
       disposed.resolve();
       await pending;

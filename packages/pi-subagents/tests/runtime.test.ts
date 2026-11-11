@@ -1,3 +1,4 @@
+import type { BeforeAgentStartEvent, BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { createSubagentRuntime, SubagentRuntime } from "#src/runtime";
@@ -6,7 +7,7 @@ import { makeModel } from "#test/helpers/make-model";
 import { STUB_SNAPSHOT } from "#test/helpers/stub-ctx";
 
 const mockBuildParentSnapshot = vi.hoisted(() =>
-  vi.fn<(ctx: SessionContext, inheritContext?: boolean) => ParentSnapshot>(),
+  vi.fn<(ctx: SessionContext, inheritContext?: boolean, options?: BuildSystemPromptOptions) => ParentSnapshot>(),
 );
 
 vi.mock("#src/lifecycle/parent-snapshot", () => ({
@@ -103,6 +104,64 @@ describe("SubagentRuntime context query methods", () => {
     mockBuildParentSnapshot.mockReturnValueOnce(STUB_SNAPSHOT);
     runtime.buildSnapshot(false);
     expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, false);
+  });
+
+  it("captures later structured handler changes and snapshots the final matching prompt", () => {
+    const runtime = createSubagentRuntime(() => ["read", "codemode"]);
+    const options: BuildSystemPromptOptions = { cwd: "/test/cwd", sections: { operator: "first" } };
+    const event = {
+      type: "before_agent_start", messageType: "user", prompt: "task",
+      systemPromptOptions: options,
+      get systemPrompt() { return JSON.stringify(options); },
+    } as BeforeAgentStartEvent;
+    const ctx = makeSessionCtx({ isProjectTrusted: () => true, getSystemPrompt: () => event.systemPrompt });
+    runtime.setSessionContext(ctx);
+    runtime.capturePrompt(event);
+    options.sections = { operator: "later handler" };
+    runtime.confirmPrompt(ctx);
+    mockBuildParentSnapshot.mockReturnValueOnce({ ...STUB_SNAPSHOT });
+    const snapshot = runtime.buildSnapshot(false);
+    expect(mockBuildParentSnapshot).toHaveBeenCalledWith(ctx, false, options);
+    expect(snapshot.availableTools).toEqual(["read", "codemode"]);
+    options.sections.operator = "mutated after capture";
+    expect(mockBuildParentSnapshot.mock.calls[0][2]?.sections?.operator).toBe("later handler");
+  });
+
+  it("rejects forceSystemPrompt added after capture or after confirmation, including empty text", () => {
+    for (const afterConfirmation of [false, true]) {
+      const runtime = createSubagentRuntime();
+      const options: BuildSystemPromptOptions = { cwd: "/test/cwd" };
+      const event = {
+        type: "before_agent_start", messageType: "user", prompt: "task", systemPromptOptions: options,
+        get systemPrompt() { return options.forceSystemPrompt ?? "effective"; },
+      } as BeforeAgentStartEvent;
+      const ctx = makeSessionCtx({ isProjectTrusted: () => false, getSystemPrompt: () => event.systemPrompt });
+      runtime.setSessionContext(ctx);
+      runtime.capturePrompt(event);
+      if (!afterConfirmation) options.forceSystemPrompt = "";
+      runtime.confirmPrompt(ctx);
+      if (afterConfirmation) options.forceSystemPrompt = "";
+      expect(() => runtime.buildSnapshot(false)).toThrow("opaque forceSystemPrompt");
+    }
+  });
+
+  it("rejects missing, mismatched, and invalidated structured state in real SDK contexts", () => {
+    const runtime = createSubagentRuntime();
+    let effective = "effective";
+    const ctx = makeSessionCtx({ isProjectTrusted: () => true, getSystemPrompt: () => effective });
+    runtime.setSessionContext(ctx);
+    expect(() => runtime.buildSnapshot(false)).toThrow("structured system prompt");
+    const event = {
+      type: "before_agent_start", messageType: "user", prompt: "task",
+      systemPrompt: "effective", systemPromptOptions: { cwd: "/test/cwd" },
+    } as BeforeAgentStartEvent;
+    runtime.capturePrompt(event);
+    runtime.confirmPrompt(ctx);
+    effective = "changed before dispatch";
+    expect(() => runtime.buildSnapshot(false)).toThrow("no longer matches");
+    runtime.clearSessionContext();
+    runtime.setSessionContext(ctx);
+    expect(() => runtime.buildSnapshot(false)).toThrow("structured system prompt");
   });
 
   it("getModelInfo returns model and modelRegistry from current context", () => {

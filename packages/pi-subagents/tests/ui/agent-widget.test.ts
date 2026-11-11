@@ -33,7 +33,7 @@ function makeWidget(
 
 ) {
 	const manager = {
-		listAgents: () => agents.map(a => ({ invocation: { runInBackground: true }, ...a })),
+		listAgents: () => agents.map(a => ({ invocation: { runInBackground: true }, isBackground: a.invocation?.runInBackground ?? true, ...a })),
 	} as unknown as SubagentManager;
 	const registry = new AgentTypeRegistry(() => new Map());
 	const widget = new AgentWidget(manager, registry);
@@ -243,8 +243,8 @@ describe("AgentWidget — projection reads activity off Subagent records", () =>
 		const allText = lines.join("\n");
 		// Turn 3 from the record should appear
 		expect(allText).toContain("↻3");
-		// Active tool "read" → "reading…"
-		expect(allText).toContain("reading");
+		// The shared progress projection preserves the observed tool name.
+		expect(allText).toContain("正在执行工具：read");
 	});
 });
 
@@ -361,11 +361,25 @@ describe("AgentWidget — background-only filtering", () => {
 				id: "fg1",
 				phase: "running",
 				completedAt: undefined,
+				isBackground: false,
 				invocation: { runInBackground: false },
 			}),
 		]);
 		widget.update();
 		expect(lastContent()).toBeUndefined();
+	});
+
+	it("uses the current invocation mode after foreground/background resumes", () => {
+		const { widget, renderLines } = setup([
+			createTestSubagent({ id: "resumed-bg", phase: "running", completedAt: undefined,
+				description: "background resume", isBackground: true, invocation: { runInBackground: false } }),
+			createTestSubagent({ id: "resumed-fg", phase: "running", completedAt: undefined,
+				description: "foreground resume", isBackground: false, invocation: { runInBackground: true } }),
+		]);
+		widget.update();
+		const text = renderLines().join("\n");
+		expect(text).toContain("background resume");
+		expect(text).not.toContain("foreground resume");
 	});
 
 	it("renders only background agents when foreground and background agents are mixed", () => {
@@ -382,6 +396,7 @@ describe("AgentWidget — background-only filtering", () => {
 				phase: "running",
 				completedAt: undefined,
 				description: "foreground task",
+				isBackground: false,
 				invocation: { runInBackground: false },
 			}),
 		]);

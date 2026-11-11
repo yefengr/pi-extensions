@@ -21,6 +21,8 @@ import { isInvocationTimeout } from "#src/lifecycle/invocation-control";
 import { getSessionContextPercent, type SessionStatsLike } from "#src/lifecycle/usage";
 import { extractText } from "#src/session/context";
 import { getAgentConversation } from "#src/session/conversation";
+import { appendCloseCheckpoint, type CheckpointManager, type TerminalReceipt } from "#src/session/recovery-checkpoint";
+import type { SessionLease } from "#src/session/session-lease";
 import type { SessionMessage } from "#src/types";
 
 export type TurnLoopOutcome = "completed" | "turn_limit" | "timeout" | "cancelled";
@@ -52,6 +54,8 @@ export interface SubagentSessionMeta {
   /** Parent context prepended to the run prompt, captured at spawn time. */
   parentContext: string | undefined;
   lifecycle: ChildLifecyclePublisher;
+  lease?: SessionLease;
+  checkpointManager?: CheckpointManager;
 }
 
 /**
@@ -59,6 +63,13 @@ export interface SubagentSessionMeta {
  */
 export class SubagentSession {
   private disposed = false;
+  private disposeTask?: Promise<void>;
+  private shutdownConfirmed = false;
+
+  /** A bounded teardown returning does not prove a hanging handler stopped. */
+  get cleanupConfirmed(): boolean {
+    return this.disposed && this.shutdownConfirmed;
+  }
 
   constructor(
     private readonly _session: AgentSession,
@@ -80,6 +91,11 @@ export class SubagentSession {
 
   get outputFile(): string | undefined {
     return this.meta.outputFile;
+  }
+
+  /** Exact ownership marker for conservative-cleanup diagnostics. */
+  get leasePath(): string | undefined {
+    return this.meta.lease?.path;
   }
 
   /** Drive the initial invocation and publish its child-session outcome. */
@@ -104,6 +120,10 @@ export class SubagentSession {
 
   private async executePrompt(prompt: string, opts: TurnLoopOptions): Promise<TurnLoopResult> {
     const session = this._session;
+    if (opts.signal?.aborted) {
+      return { responseText: "", outcome: resolveTurnLoopOutcome(opts.signal, false), wrappedUp: false };
+    }
+    const previousMessages = new Set(session.messages);
     let turnCount = 0;
     let wrappedUp = false;
     let hardLimitRequiredAbort = false;
@@ -144,9 +164,19 @@ export class SubagentSession {
       cleanupAbort();
     }
 
-    const responseText = collector.getText().trim() || getLastAssistantText(session);
+    const latest = collector.getMessage()
+      ?? session.messages.filter((message) => !previousMessages.has(message) && message.role === "assistant").at(-1);
     const outcome = resolveTurnLoopOutcome(opts.signal, hardLimitRequiredAbort);
-    return { responseText, outcome, wrappedUp };
+    if (outcome === "completed" && latest?.role === "assistant" && latest.stopReason === "error") {
+      throw new Error(latest.errorMessage?.trim() || "Subagent model request failed");
+    }
+    const responseText = latest?.role === "assistant" ? extractText(latest.content).trim() : collector.getText().trim();
+    return {
+      responseText,
+      outcome: outcome === "completed" && latest?.role === "assistant" && latest.stopReason === "aborted"
+        ? "cancelled" : outcome,
+      wrappedUp,
+    };
   }
 
   /** Deliver a steer to the live session. */
@@ -207,13 +237,29 @@ export class SubagentSession {
    * Idempotent: the guard is set before the first await, so concurrent callers
    * (a retention sweep racing a manager teardown) emit and dispose exactly once.
    */
-  async dispose(): Promise<void> {
-    if (this.disposed) return;
+  dispose(): Promise<void> {
+    this.disposeTask ??= this.disposeOnce();
+    return this.disposeTask;
+  }
+
+  /** Close only after the owner has proved all invocation/workspace work settled. */
+  async closeForRecovery(receipt: TerminalReceipt | undefined): Promise<boolean> {
+    await this.dispose();
+    if (!this.cleanupConfirmed) return false;
+    if (!this.meta.lease) return true; // Legacy pure test stubs have no persisted ownership.
+    if (!receipt || !this.meta.checkpointManager) return false;
+    appendCloseCheckpoint(this.meta.checkpointManager, receipt);
+    this.meta.lease.release();
+    return true;
+  }
+
+  private async disposeOnce(): Promise<void> {
     this.disposed = true;
-    await emitChildSessionShutdown(this._session);
+    const confirmed = await emitChildSessionShutdown(this._session);
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- dispose may not exist on all session implementations
     this._session.dispose?.();
     this.meta.lifecycle.disposed({ sessionId: this.meta.sessionId });
+    this.shutdownConfirmed = confirmed;
   }
 }
 
@@ -225,9 +271,13 @@ export class SubagentSession {
  */
 function collectResponseText(session: AgentSession) {
   let text = "";
+  let message: Extract<SessionMessage, { role: "assistant" }> | undefined;
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
     if (event.type === "message_start") {
       text = "";
+    }
+    if (event.type === "message_end" && event.message.role === "assistant") {
+      message = event.message;
     }
     if (
       event.type === "message_update" &&
@@ -236,18 +286,7 @@ function collectResponseText(session: AgentSession) {
       text += event.assistantMessageEvent.delta;
     }
   });
-  return { getText: () => text, unsubscribe };
-}
-
-/** Get the last assistant text from the completed session history. */
-function getLastAssistantText(session: AgentSession): string {
-  for (let i = session.messages.length - 1; i >= 0; i--) {
-    const msg = session.messages[i];
-    if (msg.role !== "assistant") continue;
-    const text = extractText(msg.content).trim();
-    if (text) return text;
-  }
-  return "";
+  return { getText: () => text, getMessage: () => message, unsubscribe };
 }
 
 /**

@@ -66,6 +66,10 @@ export function createSubagentSessionStub(
 			session.dispose();
 			return Promise.resolve();
 		}),
+		closeForRecovery: vi.fn(async function(this: { dispose(): Promise<void> }): Promise<boolean> {
+			await this.dispose();
+			return true;
+		}),
 		getConversation: vi.fn((): string => ""),
 		getContextPercent: vi.fn((): number | null => null),
 		subscribe: vi.fn((fn: (event: unknown) => void): (() => void) => session.subscribe(fn)),

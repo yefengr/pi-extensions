@@ -17,6 +17,7 @@ import {
   type ExtensionAPI,
   getAgentDir,
   ModelRuntime,
+  ProjectTrustStore,
   type ResourceLoader,
   ModelRegistry as SdkModelRegistry,
   SettingsManager as SdkSettingsManager,
@@ -41,9 +42,11 @@ import { detectEnv } from "#src/session/env";
 
 import { resolveModel } from "#src/session/model-resolver";
 import { createExcludedPackagesStorage } from "#src/session/package-exclusions";
+import { type HistoryParent, PersistedSubagentStore } from "#src/session/persisted-records";
 import { buildAgentPrompt } from "#src/session/prompts";
 import { inheritRegisteredProviders } from "#src/session/provider-inheritance";
 import { deriveSubagentSessionDir } from "#src/session/session-dir";
+import { acquireSessionLease } from "#src/session/session-lease";
 import { SettingsManager } from "#src/settings";
 import { AgentTool } from "#src/tools/agent-tool";
 import { GetResultTool } from "#src/tools/get-result-tool";
@@ -67,7 +70,15 @@ export default function (pi: ExtensionAPI) {
   );
 
   // ---- Runtime: all mutable extension state in one place ----
-  const runtime = createSubagentRuntime();
+  const runtime = createSubagentRuntime(() => pi.getAllTools().map((tool) => tool.name));
+  pi.on("before_agent_start", (event) => runtime.capturePrompt(event));
+  pi.on("agent_start", (_event, ctx) => runtime.confirmPrompt(ctx));
+  const getParent = (): HistoryParent | undefined => {
+    const ctx = runtime.currentCtx;
+    const file = ctx?.sessionManager.getSessionFile();
+    return ctx && file ? { id: ctx.sessionManager.getSessionId(), file, entries: ctx.sessionManager.getBranch() } : undefined;
+  };
+  const persisted = new PersistedSubagentStore(getParent);
 
   // ---- Notification system ----
   // Owns completion nudges and live-activity cleanup. The widget detects finished
@@ -98,6 +109,7 @@ export default function (pi: ExtensionAPI) {
   const eventsObserver = new SubagentEventsObserver({
     emit: (channel, data) => pi.events.emit(channel, data),
     appendEntry: (customType, data) => pi.appendEntry(customType, data),
+    getParent,
     notifications,
   });
 
@@ -109,12 +121,14 @@ export default function (pi: ExtensionAPI) {
 
   const subagentSessionDeps: SubagentSessionDeps = {
     io: {
+      acquireSessionLease,
+      getProjectTrust: (cwd, agentDir) => new ProjectTrustStore(agentDir).get(cwd) === true,
       detectEnv,
       getAgentDir,
       createResourceLoader: (opts) => new DefaultResourceLoader(opts),
       deriveSessionDir: deriveSubagentSessionDir,
       createSessionManager: (cwd, dir) => SessionManager.create(cwd, dir),
-      createSettingsManager: (cwd, dir) => SdkSettingsManager.create(cwd, dir),
+      createSettingsManager: (cwd, dir, projectTrusted) => SdkSettingsManager.create(cwd, dir, { projectTrusted }),
       // The exclusion policy is resolved here, at the composition root, so the
       // assembly factory stays free of it and gets a ready-made settings view.
       createLoaderSettingsManager: (parent) => {
@@ -163,6 +177,11 @@ export default function (pi: ExtensionAPI) {
 
   const manager = new SubagentManager({
     createSubagentSession: (params) => createSubagentSession(params, subagentSessionDeps),
+    coldResume: {
+      store: persisted, acquireLease: acquireSessionLease,
+      open: (file) => SessionManager.open(file),
+      isEnabled: (type) => { registry.reload(); return registry.isValidType(type); },
+    },
     baseCwd: process.cwd(),
     observer,
     limiter,
@@ -206,7 +225,7 @@ export default function (pi: ExtensionAPI) {
 
   // ---- get_subagent_result tool ----
 
-  pi.registerTool(new GetResultTool(manager, registry).toToolDefinition());
+  pi.registerTool(new GetResultTool(manager, registry, persisted).toToolDefinition());
 
   // ---- steer_subagent tool ----
 
@@ -257,6 +276,7 @@ export default function (pi: ExtensionAPI) {
         ui: ctx.ui,
         outputPad: pi.getSettings().outputPad ?? 1,
         agents: manager.listAgents(),
+        persisted: persisted.list(),
         registry,
         cwd: ctx.cwd,
         readFile: (path) => readFileSync(path, "utf8"),

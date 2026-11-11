@@ -7,6 +7,7 @@
  * result-renderer.ts pattern used by the subagent tool's TUI renderer.
  */
 
+import type { SubagentProgress } from "#src/lifecycle/progress";
 import type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent";
 
 /** The data a get_subagent_result report renders from — only what the formatter reads. */
@@ -14,6 +15,7 @@ export interface AgentReport {
 	id: string;
 	displayName: string;
 	phase: SubagentPhase;
+	invocationKind?: "fresh" | "resume";
 	outcome?: SubagentOutcome;
 	toolUses: number;
 	/** Pre-formatted lifetime token total; "" when zero. */
@@ -31,6 +33,8 @@ export interface AgentReport {
 	conversation?: string;
 	/** Persisted transcript path; rendered as a pointer so the parent can read it directly. */
 	transcriptPath?: string;
+	/** Only live observations; historical records do not fabricate progress. */
+	progress?: SubagentProgress;
 }
 
 /** Assemble the stats parts: Tool uses / tokens? / Context? / Compactions? / Duration. */
@@ -52,7 +56,9 @@ export function renderReportBody(report: AgentReport): string {
 		report.stoppedWhileQueued &&
 		(report.outcome === "cancelled" || report.outcome === "queue_timeout")
 	)
-		return "Agent was stopped while queued and never started. No work was performed.";
+		return report.invocationKind === "resume"
+			? "This resume was stopped while queued; no new prompt was started."
+			: "Agent was stopped while queued and never started. No work was performed.";
 	return report.result?.trim() ?? "No output.";
 }
 
@@ -63,6 +69,12 @@ export function formatAgentReport(report: AgentReport): string {
 		`Type: ${report.displayName} | Status: ${report.outcome ?? report.phase} | ${renderStatsParts(report).join(" | ")}\n` +
 		`Description: ${report.description}\n\n`;
 	output += renderReportBody(report);
+	if (report.progress) {
+		output += `\nActivity: ${report.progress.activity} | Turns: ${report.progress.invocationTurnCount}/${report.progress.maxTurns}`;
+		if (report.progress.sinceLastProgressMs !== undefined) {
+			output += ` | Last observed progress: ${Math.floor(report.progress.sinceLastProgressMs / 1000)}s ago`;
+		}
+	}
 	if (report.conversation) {
 		output += `\n\n--- Agent Conversation ---\n${report.conversation}`;
 	}

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { appendFile } from "node:fs/promises";
 import test from "node:test";
 
 import { buildLifecycleRecord } from "../../packages/pi-subagents/src/lifecycle/lifecycle-record.ts";
@@ -9,6 +10,8 @@ import {
   loadSourceSnapshot,
   validateTaskRange,
 } from "../../packages/pi-task-efficiency/src/core/index.ts";
+import { appendCloseCheckpoint } from "../../packages/pi-subagents/src/session/recovery-checkpoint.ts";
+import { parseSavedInvocation } from "../../packages/pi-subagents/src/session/persisted-records.ts";
 import { parseLifecycleRecord } from "../../packages/pi-task-efficiency/src/core/lifecycle.ts";
 import {
   assistant,
@@ -177,6 +180,127 @@ test("真实 producer → report：fresh/resume 按同一 sessionId 的各自窗
   assert.equal(report.usage.children?.tokens.input, 20);
   assert.equal(report.usage.children?.cost.total, 0.4);
   assert.equal(JSON.stringify(report).includes(childPath), false);
+});
+
+test("启动阶段取消的真实producer仍产生可消费的无会话终态", () => {
+  const record = producedRecord({
+    outcome: "cancelled", sessionState: "not-created", sessionId: undefined,
+    stoppedWhileQueued: false, invocationTurnCount: 0, lifetimeTurnCount: 0,
+    invocationUsage: ZERO_USAGE, lifetimeUsage: ZERO_USAGE,
+  });
+  assert.equal(record.outcome, "cancelled");
+  assert.equal(parseLifecycleRecord(record).record.sessionState, "not-created");
+});
+
+test("真实 producer → 持久化查询与统计消费：身份及逐调用指标一致", () => {
+  for (const outcome of OUTCOMES) {
+    const produced = producedRecord({ outcome });
+    const persisted = parseSavedInvocation({ id: "terminal-entry", data: produced });
+    const consumed = parseLifecycleRecord(produced).record;
+    assert.equal(persisted.version, 3);
+    assert.equal(persisted.entryId, "terminal-entry");
+    assert.equal(persisted.record.id, consumed.id);
+    assert.equal(persisted.record.sessionId, consumed.sessionId);
+    assert.equal(persisted.record.invocationIndex, consumed.invocationIndex);
+    assert.equal(persisted.record.outcome, consumed.status);
+    assert.deepEqual(persisted.record.invocationUsage, consumed.invocationUsage);
+  }
+});
+
+test("关闭检查点不会重复计量，冷恢复窗口连续且损坏尾部不会报告完整覆盖", async (t) => {
+  const fresh = producedRecord();
+  const resumed = producedRecord({ lifecycleInvocation: { kind: "resume", source: "tool" },
+    invocationIndex: 2, toolCallId: "resume", invocationStartedAt: BASE_TIME + 5000,
+    completedAt: BASE_TIME + 8000, lifetimeTurnCount: 2,
+    lifetimeUsage: { input: 20, output: 6, cacheWrite: 2 } });
+  const values = [header(3, { id: "child-session", parentSession: "parent", cwd: "/project" }),
+    user("cu1", null, 2), assistant("ca1", "cu1", 3)];
+  function checkpoint(record, id, seconds) {
+    appendCloseCheckpoint({ getSessionId: () => "child-session", getSessionFile: () => undefined,
+      getCwd: () => "/project", getLeafId: () => values.at(-1).id,
+      appendCustomEntry: (customType, data) => {
+        assert.equal("result" in data || "usage" in data || "isCurrent" in data, false);
+        values.push(entry("custom", id, values.at(-1).id, seconds, { customType, data }));
+        return id;
+      } }, { parentId: "parent", parentFile: "/parent.jsonl", terminalEntryId: `${record.toolCallId}-record`,
+      agentId: record.id, agentType: record.type, childSessionId: record.sessionId,
+      invocationIndex: record.invocationIndex, isCurrent: () => true });
+  }
+  checkpoint(fresh, "close-1", 4);
+  values.push(user("cu2", "close-1", 6), assistant("ca2", "cu2", 7));
+  checkpoint(resumed, "close-2", 8);
+  const childPath = await writeSession(t, values);
+  fresh.outputFile = childPath;
+  resumed.outputFile = childPath;
+  const dependencies = { readChildDirectory: async () => [childPath], loadChildSnapshot: loadSourceSnapshot };
+  const report = await reportFor(t, [fresh, resumed], dependencies);
+  assert.equal(report.coverage.complete, true);
+  assert.equal(report.subagents.invocations, 2);
+  assert.equal(report.subagents.sessions, 1);
+  assert.equal(report.usage.children.tokens.input, 20);
+  await appendFile(childPath, '{"type":');
+  const incomplete = await reportFor(t, [fresh, resumed], dependencies);
+  assert.equal(incomplete.coverage.complete, false);
+  assert.equal(incomplete.subagents.invocations, 2);
+});
+
+for (const outcome of ["cancelled", "queue_timeout"]) {
+  test(`后台resume排队${outcome}只计一次调用，不重复累计原对话usage`, async (t) => {
+    const childPath = await writeSession(t, [
+      header(3, { id: "child-session", parentSession: "parent" }),
+      user("cu1", null, 2), assistant("ca1", "cu1", 3),
+    ]);
+    const fresh = producedRecord({ outputFile: childPath });
+    const resumed = producedRecord({ outputFile: childPath, isBackground: true, outcome,
+      lifecycleInvocation: { kind: "resume", source: "tool" }, invocationIndex: 2,
+      toolCallId: "resume", invocationStartedAt: BASE_TIME + 5000, completedAt: BASE_TIME + 8000,
+      stoppedWhileQueued: true, invocationTurnCount: 0, lifetimeTurnCount: 1,
+      invocationUsage: ZERO_USAGE, lifetimeUsage: INVOCATION_USAGE,
+    });
+    const saved = parseSavedInvocation({ id: "resume-record", data: resumed });
+    const parsed = parseLifecycleRecord(resumed).record;
+    assert.equal(saved.record.isBackground, true);
+    assert.equal(parsed.invocationKind, "resume");
+    assert.equal(parsed.status, outcome);
+    const report = await reportFor(t, [fresh, resumed], {
+      readChildDirectory: async () => [childPath], loadChildSnapshot: loadSourceSnapshot,
+    });
+    assert.equal(report.coverage.complete, true, JSON.stringify({ coverage: report.coverage, subagents: report.subagents }));
+    assert.equal(report.subagents.invocations, 2);
+    assert.equal(report.subagents.resumes, 1);
+    assert.equal(report.subagents.sessions, 1);
+    assert.equal(report.usage.children.tokens.input, 10);
+  });
+}
+
+for (const scenario of ["nonzero turns", "nonzero usage", "nonzero tools", "successful outcome", "foreground resume", "missing turns", "legacy v2", "damaged tail"]) {
+  test(`空resume窗口不能掩盖${scenario}`, async (t) => {
+    const childPath = await writeSession(t, [header(3, { id: "child-session", parentSession: "parent" }),
+      user("cu1", null, 2), assistant("ca1", "cu1", 3)]);
+    const fresh = producedRecord({ outputFile: childPath });
+    let resumed = producedRecord({ outputFile: childPath, isBackground: scenario !== "foreground resume", outcome: scenario === "successful outcome" ? "completed" : "cancelled",
+      lifecycleInvocation: { kind: "resume", source: "tool" }, invocationIndex: 2,
+      toolCallId: "resume", invocationStartedAt: BASE_TIME + 5000, completedAt: BASE_TIME + 8000,
+      invocationTurnCount: scenario === "nonzero turns" ? 1 : 0, lifetimeTurnCount: 1,
+      invocationToolUses: scenario === "nonzero tools" ? 1 : 0, toolUses: scenario === "nonzero tools" ? 1 : 0,
+      invocationUsage: scenario === "nonzero usage" ? { input: 1, output: 0, cacheWrite: 0 } : ZERO_USAGE,
+      lifetimeUsage: scenario === "nonzero usage" ? { input: 11, output: 3, cacheWrite: 1 } : INVOCATION_USAGE,
+    });
+    if (scenario === "missing turns") delete resumed.invocationTurnCount;
+    if (scenario === "legacy v2") resumed = { ...resumed, recordVersion: 2, status: "stopped" };
+    if (scenario === "damaged tail") await appendFile(childPath, '{"type":');
+    const report = await reportFor(t, [fresh, resumed], {
+      readChildDirectory: async () => [childPath], loadChildSnapshot: loadSourceSnapshot,
+    });
+    assert.equal(report.coverage.complete, false);
+    if (scenario !== "damaged tail" && scenario !== "missing turns") assert.ok(report.subagents.issues.some((issue) => issue.code === "empty_child_window"));
+  });
+}
+
+test("即时观察字段不进入公共v3持久化协议", () => {
+  const record = producedRecord({ lastProgressAt: BASE_TIME, observedActivity: "tool", progress: { activity: PRIVATE_TEXT } });
+  for (const key of ["lastProgressAt", "observedActivity", "progress"]) assert.equal(key in record, false);
+  assert.equal(record.recordVersion, 3);
 });
 
 test("未来 producer 版本仍拒绝，不能因当前版本兼容而放松验证", async (t) => {

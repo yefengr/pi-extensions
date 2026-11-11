@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildLifecycleEventData,
@@ -6,8 +8,9 @@ import {
 import type { NotificationSystem } from "#src/observation/notification";
 import { SubagentEventsObserver } from "#src/observation/subagent-events-observer";
 import type { CompactionInfo } from "#src/types";
-import { createTestSubagent } from "#test/helpers/make-subagent";
+import { createTestSubagent, makeStubExecution } from "#test/helpers/make-subagent";
 import { createMockSession, createSubagentSessionStub, toSubagentSession } from "#test/helpers/mock-session";
+import { createRecoveryFixture } from "#test/helpers/recovery-fixture";
 
 function makeNotifications(): NotificationSystem {
 	return {
@@ -23,6 +26,44 @@ function makeObserver(overrides?: Partial<{ notifications: NotificationSystem }>
 	const observer = new SubagentEventsObserver({ emit, appendEntry, notifications });
 	return { observer, emit, appendEntry, notifications };
 }
+
+describe("SubagentEventsObserver — durable terminal receipts", () => {
+	function receiptObserver(parent: SessionManager) {
+		const record = createTestSubagent({ execution: makeStubExecution({ parentSession: {
+			parentSessionId: parent.getSessionId(), parentSessionFile: parent.getSessionFile()!,
+		} }) });
+		const receipt = vi.spyOn(record, "recordTerminalReceipt");
+		const observer = new SubagentEventsObserver({ emit: vi.fn(), notifications: makeNotifications(),
+			appendEntry: (type, data) => { parent.appendCustomEntry(type, data); },
+			getParent: () => ({ id: parent.getSessionId(), file: parent.getSessionFile()!, entries: parent.getBranch() }),
+		});
+		return { record, receipt, observer };
+	}
+
+	it("does not attest a custom terminal that SDK kept only in memory", () => {
+		const fixture = createRecoveryFixture();
+		try {
+			const parent = SessionManager.create(fixture.cwd, join(fixture.root, "empty-parent"));
+			const { record, receipt, observer } = receiptObserver(parent);
+			observer.onSubagentCompleted(record);
+			expect(parent.getBranch().some((entry) => entry.type === "custom")).toBe(true);
+			expect(receipt).not.toHaveBeenCalled();
+		} finally { fixture.cleanup(); }
+	});
+
+	it("attests an actual persisted entry and invalidates it when the parent branch changes", () => {
+		const fixture = createRecoveryFixture();
+		try {
+			const { record, receipt, observer } = receiptObserver(fixture.parent);
+			observer.onSubagentCompleted(record);
+			expect(receipt).toHaveBeenCalledOnce();
+			const terminal = receipt.mock.calls[0]![0];
+			expect(terminal.isCurrent()).toBe(true);
+			fixture.parent.branch(fixture.anchor);
+			expect(terminal.isCurrent()).toBe(false);
+		} finally { fixture.cleanup(); }
+	});
+});
 
 describe("SubagentEventsObserver", () => {
 	describe("non-terminal events", () => {

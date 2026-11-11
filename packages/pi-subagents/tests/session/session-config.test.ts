@@ -119,9 +119,12 @@ describe("assembleSessionConfig — model resolution", () => {
     expect(result.model).toBeUndefined();
   });
 
-  it("options.model wins over config model and parent model", () => {
+  it("profile model wins over invocation and parent models", () => {
     const explicitModel = makeModel({ provider: "anthropic", id: "claude-opus-4" });
+    const profileModel = makeModel({ provider: "anthropic", id: "claude-haiku-4" });
     mockResolveAgentConfig.mockReturnValueOnce(exploreConfig({ model: "anthropic/claude-haiku-4" }));
+    mockRegistry.find.mockReturnValueOnce(profileModel);
+    mockRegistry.getAvailable.mockReturnValueOnce([profileModel]);
 
     const result = assembleSessionConfig(
       "Explore",
@@ -132,7 +135,7 @@ describe("assembleSessionConfig — model resolution", () => {
       mockIO,
     );
 
-    expect(result.model).toBe(explicitModel);
+    expect(result.model).toBe(profileModel);
   });
 
   it("config model string resolves via registry when available", () => {
@@ -247,7 +250,7 @@ describe("assembleSessionConfig — thinking level", () => {
     expect(result.thinkingLevel).toBeUndefined();
   });
 
-  it("options.thinkingLevel wins over agentConfig.thinking", () => {
+  it("agentConfig.thinking wins over options.thinkingLevel", () => {
     mockResolveAgentConfig.mockReturnValueOnce(exploreConfig({ thinking: "low" }));
 
     const result = assembleSessionConfig(
@@ -259,7 +262,12 @@ describe("assembleSessionConfig — thinking level", () => {
       mockIO,
     );
 
-    expect(result.thinkingLevel).toBe("high");
+    expect(result.thinkingLevel).toBe("low");
+  });
+
+  it("inherits parent off thinking without enabling reasoning", () => {
+    const result = assembleSessionConfig("Explore", { ...ctx, parentThinkingLevel: "off" }, {}, mockEnv, mockAgentLookup, mockIO);
+    expect(result.thinkingLevel).toBe("off");
   });
 
   it("agentConfig.thinking is used when no option is provided", () => {

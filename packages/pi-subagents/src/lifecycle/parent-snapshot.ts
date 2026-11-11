@@ -3,9 +3,10 @@
  */
 
 import type { Model } from "@earendil-works/pi-ai";
+import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { buildParentContext } from "#src/session/context";
 import type { ModelRegistry } from "#src/session/model-resolver";
-import type { SessionContext } from "#src/types";
+import type { SessionContext, ThinkingLevel } from "#src/types";
 
 /**
  * Plain data snapshot of the parent session state captured at spawn time.
@@ -22,6 +23,11 @@ export interface ParentSnapshot {
   modelRegistry: ModelRegistry;
   /** Pre-built parent conversation text (when inheritContext was requested). */
   parentContext?: string;
+  thinkingLevel?: ThinkingLevel;
+  projectTrusted?: boolean;
+  promptOptions?: BuildSystemPromptOptions;
+  /** Registered parent capabilities bound the built-ins a child can recreate. */
+  availableTools?: string[];
 }
 
 /**
@@ -33,6 +39,7 @@ export interface ParentSnapshot {
 export function buildParentSnapshot(
   ctx: SessionContext,
   inheritContext?: boolean,
+  promptOptions?: BuildSystemPromptOptions,
 ): ParentSnapshot {
   const parentContext = inheritContext ? buildParentContext(ctx) : undefined;
   return {
@@ -42,5 +49,8 @@ export function buildParentSnapshot(
     modelRegistry: ctx.modelRegistry,
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- || intentional: converts empty string to undefined as well as null/undefined
     parentContext: parentContext || undefined,
+    thinkingLevel: ctx.thinkingLevel,
+    projectTrusted: ctx.isProjectTrusted?.(),
+    promptOptions: promptOptions ? structuredClone(promptOptions) : undefined,
   };
 }

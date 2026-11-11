@@ -63,7 +63,7 @@ describe("emitChildSessionShutdown — failure tolerance", () => {
   it("resolves when the session exposes no extension runner", async () => {
     const { session } = createShutdownCapableSession({ extensionRunner: undefined });
 
-    await expect(emitChildSessionShutdown(session)).resolves.toBeUndefined();
+    await expect(emitChildSessionShutdown(session)).resolves.toBe(true);
   });
 
   it("resolves when the emit rejects", async () => {
@@ -71,7 +71,7 @@ describe("emitChildSessionShutdown — failure tolerance", () => {
       extensionRunner: { emit: vi.fn(() => Promise.reject(new Error("boom"))) },
     });
 
-    await expect(emitChildSessionShutdown(session)).resolves.toBeUndefined();
+    await expect(emitChildSessionShutdown(session)).resolves.toBe(false);
   });
 
   it("resolves when the emit throws synchronously", async () => {
@@ -83,7 +83,7 @@ describe("emitChildSessionShutdown — failure tolerance", () => {
       },
     });
 
-    await expect(emitChildSessionShutdown(session)).resolves.toBeUndefined();
+    await expect(emitChildSessionShutdown(session)).resolves.toBe(false);
   });
 });
 
@@ -130,6 +130,13 @@ describe("emitChildSessionShutdown — timeout bound", () => {
     await vi.advanceTimersByTimeAsync(1);
     await pending;
     expect(settled).toBe(true);
+  });
+
+  it("reports that timed-out shutdown is unconfirmed", async () => {
+    const { session } = createHangingSession();
+    const pending = emitChildSessionShutdown(session, 5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(pending).resolves.toBe(false);
   });
 
   it("leaves no pending timer after a timed-out emit", async () => {

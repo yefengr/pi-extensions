@@ -1,3 +1,4 @@
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { Theme } from "#src/ui/display";
@@ -214,6 +215,16 @@ describe("renderRunningLines", () => {
 });
 
 describe("renderWidgetLines", () => {
+	it.each([24, 40, 100])("keeps observed progress labels within %s terminal columns", (terminalWidth) => {
+		const agent = makeAgent({ phase: "running", completedAt: undefined,
+			progress: { activity: "Running tools: read, bash", invocationTurnCount: 3, maxTurns: 10,
+				lastProgressAt: 1000, sinceLastProgressMs: 60_000 } });
+		const lines = renderWidgetLines({ agents: [agent], registry: testRegistry, spinnerFrame: 0,
+			terminalWidth, theme: { fg: (_color, text) => text, bold: text => text }, shouldShowFinished: () => true });
+		expect(lines).toHaveLength(3);
+		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(terminalWidth);
+		if (terminalWidth === 100) expect(lines[2]).toContain("最近进展");
+	});
 	const theme = stubTheme();
 
 	it("renders a single running agent with heading and tree connectors", () => {

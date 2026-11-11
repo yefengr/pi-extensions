@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import type { SubagentsService } from "#src/service/service";
@@ -51,6 +52,7 @@ describe("toSubagentRecord", () => {
       maxTurns: 30,
       wrapUpTurns: 2,
       maxDurationSeconds: 1800,
+      progress: { activity: "Terminal state", invocationTurnCount: 1, maxTurns: 30 },
     });
   });
 
@@ -59,6 +61,15 @@ describe("toSubagentRecord", () => {
     record.subagentSession = toSubagentSession(createSubagentSessionStub(createMockSession()));
     const result = toSubagentRecord(record);
     expect(result).not.toHaveProperty("subagentSession");
+  });
+
+  it("returns an isolated serializable progress snapshot", () => {
+    const record = createTestSubagent({ phase: "running", activeTools: ["read"], completedAt: undefined });
+    const first = toSubagentRecord(record);
+    expect(first.progress).toEqual({ activity: "Running tools: read", invocationTurnCount: 1, maxTurns: 30 });
+    first.progress!.activity = "consumer mutation";
+    expect(toSubagentRecord(record).progress!.activity).toBe("Running tools: read");
+    expect(JSON.parse(JSON.stringify(first)).progress.activity).toBe("consumer mutation");
   });
 
   it("strips abortController from the record", () => {
@@ -124,6 +135,7 @@ describe("toSubagentRecord", () => {
       maxTurns: 30,
       wrapUpTurns: 2,
       maxDurationSeconds: 1800,
+      progress: { activity: "Running; no activity observed yet", invocationTurnCount: 1, maxTurns: 30 },
     });
     expect(result).not.toHaveProperty("result");
     expect(result).not.toHaveProperty("error");
@@ -235,6 +247,33 @@ describe("SubagentsServiceAdapter — getRecord and listAgents", () => {
 });
 
 describe("SubagentsServiceAdapter — spawn", () => {
+  it("inherits parent identity and applies profile model/thinking and restrictive budgets", () => {
+    const manager = createManagerStub();
+    const registry = new AgentTypeRegistry(() => new Map([["worker", {
+      name: "worker", description: "worker", promptMode: "append", systemPrompt: "work",
+      model: "provider/pinned", thinking: "off", maxTurns: 8, maxDurationSeconds: 90,
+    }]]));
+    const resolveModel = vi.fn(() => makeModel({ id: "pinned" }));
+    const runtime = makeRuntimeStub();
+    const service = new SubagentsServiceAdapter(manager, resolveModel, runtime, registry);
+    service.spawn("worker", "task", { model: "ignored", thinkingLevel: "high", maxTurns: 80, maxDurationSeconds: 900, wrapUpTurns: 20 });
+    expect(resolveModel).toHaveBeenCalledWith("provider/pinned", runtime.currentCtx?.modelRegistry);
+    expect(manager.spawn).toHaveBeenCalledWith(STUB_SNAPSHOT, "worker", "task", expect.objectContaining({
+      thinkingLevel: "off", maxTurns: 8, maxDurationSeconds: 90, wrapUpTurns: 7,
+      parentSession: { parentSessionId: "stub-session", parentSessionFile: undefined },
+      lifecycleInvocation: { kind: "fresh", source: "service" },
+    }));
+    service.spawn("worker", "tighter", { maxTurns: 3, maxDurationSeconds: 15 });
+    expect(manager.spawn.mock.lastCall?.[3]).toEqual(expect.objectContaining({ maxTurns: 3, maxDurationSeconds: 15 }));
+  });
+
+  it("keeps parent thinking when profile and invocation omit it", () => {
+    const manager = createManagerStub();
+    const runtime = makeRuntimeStub({ buildSnapshot: () => ({ ...STUB_SNAPSHOT, thinkingLevel: "off" }) });
+    new SubagentsServiceAdapter(manager, vi.fn(), runtime).spawn("general-purpose", "task");
+    expect(manager.spawn.mock.lastCall?.[3]).toEqual(expect.objectContaining({ thinkingLevel: "off" }));
+  });
+
   it("throws when currentCtx is undefined (no active session)", () => {
     const svc = new SubagentsServiceAdapter(
       createManagerStub(),

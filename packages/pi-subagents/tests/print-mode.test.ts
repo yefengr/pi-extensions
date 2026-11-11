@@ -29,8 +29,13 @@ function makePi() {
         tools.set(tool.name, tool);
       }),
       registerCommand: vi.fn(),
+      getAllTools: vi.fn(() => [...tools.values()]),
       on: vi.fn((event: string, handler: any) => {
-        handlers.set(event, handler);
+        const previous = handlers.get(event);
+        handlers.set(event, async (...args: any[]) => {
+          await previous?.(...args);
+          return handler(...args);
+        });
       }),
       events: {
         emit: vi.fn(),
@@ -68,6 +73,8 @@ function makeHeadlessCtx() {
       getBranch: vi.fn(() => []),
     },
     getSystemPrompt: vi.fn(() => "parent prompt"),
+    isProjectTrusted: () => false,
+    thinkingLevel: "off",
   } as any;
 }
 
@@ -104,7 +111,11 @@ describe("print mode background notifications", () => {
     // Fire session_start so runtime.currentCtx is populated for buildSnapshot
     const ctx = makeHeadlessCtx();
     await handlers.get("session_start")?.({}, ctx);
-    handlers.get("agent_start")?.({}, ctx);
+    await handlers.get("before_agent_start")?.({
+      systemPrompt: "parent prompt",
+      systemPromptOptions: { cwd: "/tmp" },
+    }, ctx);
+    await handlers.get("agent_start")?.({}, ctx);
 
     const agentTool = tools.get("subagent");
     const launch = await agentTool.execute(
@@ -123,7 +134,7 @@ describe("print mode background notifications", () => {
     expect(launch.content[0]?.text).toContain("Agent started in background.");
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(100); // allow the scheduled background run to settle
-    handlers.get("agent_settled")?.({}, ctx);
+    await handlers.get("agent_settled")?.({}, ctx);
 
     expect(createSubagentSession).toHaveBeenCalled();
     expect(pi.events.emit).toHaveBeenCalledWith("subagents:completed", expect.anything());

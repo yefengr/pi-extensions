@@ -28,6 +28,7 @@ import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import { WorkspaceBracket } from "#src/lifecycle/workspace-bracket";
 import { subscribeSubagentObserver } from "#src/observation/record-observer";
 import type { RunConfig } from "#src/runtime";
+import type { TerminalReceipt } from "#src/session/recovery-checkpoint";
 import type {
 	AgentInvocation,
 	CompactionInfo,
@@ -99,6 +100,11 @@ export interface InvocationLimitOverrides {
 	maxDurationSeconds?: number;
 }
 
+export interface ResumeSchedulingOptions {
+	runInBackground?: boolean;
+	schedule?: (thunk: () => Promise<void>, invocationIndex: number) => Promise<void>;
+}
+
 export interface ResolvedInvocationLimits {
 	maxTurns: number;
 	wrapUpTurns: number;
@@ -118,6 +124,9 @@ export interface SubagentInit {
 	lifecycleInvocation?: SubagentInvocationIdentity;
 	/** Optional stable session identity for hydrated records and test fixtures. */
 	sessionIdentity?: SubagentSessionIdentity;
+	/** Trusted recovery seed; public lifecycle payload remains v3. */
+	invocationIndex?: number;
+	recoveredSession?: SubagentSession;
 
 	/** Execution machinery — always supplied; construct-complete, no test fallbacks. */
 	execution: SubagentExecution;
@@ -168,6 +177,8 @@ export class Subagent {
 	get lifetimeTurnCount(): number { return this.state.lifetimeTurnCount; }
 	get activeTools(): ReadonlyMap<string, string> { return this.state.activeTools; }
 	get responseText(): string { return this.state.responseText; }
+	get lastProgressAt(): number | undefined { return this.state.lastProgressAt; }
+	get observedActivity() { return this.state.observedActivity; }
 	isActive(): boolean { return this.state.isActive(); }
 	isTerminalError(): boolean { return this.state.isTerminalError(); }
 	isRunning(): boolean { return this.state.isRunning(); }
@@ -184,6 +195,13 @@ export class Subagent {
 	private invocationInFlight = false;
 	/** True until the underlying child turn loop settles, including any late settlement after grace. */
 	private turnLoopInFlight = false;
+	private preparationInFlight = 0;
+	private cleanupUnsafe = false;
+	private closingRequested = false;
+	private closeTask?: Promise<void>;
+	private terminalReceipt?: TerminalReceipt;
+	get parentSession(): ParentSessionInfo | undefined { return this.execution.parentSession; }
+	recordTerminalReceipt(receipt: TerminalReceipt): void { this.terminalReceipt = receipt; }
 	private _promise?: Promise<void>;
 	/** Handle on the agent's current run — the initial run, or the live resume that replaced it. */
 	get promise(): Promise<void> | undefined { return this._promise; }
@@ -294,6 +312,8 @@ export class Subagent {
 			throw new Error("Fresh lifecycle toolCallId contradicts parentSession.toolCallId");
 		}
 		if (init.sessionIdentity) this.captureSessionIdentity(init.sessionIdentity);
+		this._invocationIndex = init.invocationIndex ?? 1;
+		this.subagentSession = init.recoveredSession;
 
 		// Lifecycle phase/outcome and metrics — fresh queued state unless one is supplied
 		this.state = init.state ?? new SubagentState();
@@ -330,33 +350,40 @@ export class Subagent {
 		let stage: "prepare" | "create" | "prompt" = "prepare";
 
 		try {
+			control.throwIfStopped();
 			let cwd: string | undefined;
 			if (this.workspaceBracket.hasProvider()) {
-				preparePromise = this.workspaceBracket.prepare({
+				preparePromise = this.trackPreparation(this.workspaceBracket.prepare({
 					agentId: this.id,
 					agentType: this.type,
 					baseCwd: this.execution.baseCwd,
 					invocation: this.invocation,
-				});
+				}));
 				cwd = await control.waitFor(preparePromise);
 			}
 
+			control.throwIfStopped();
 			stage = "create";
-			createPromise = this.execution.createSubagentSession({
+			createPromise = this.trackPreparation(this.execution.createSubagentSession({
 				snapshot: this.execution.snapshot,
 				type: this.type,
 				cwd,
 				parentSession: this.execution.parentSession,
 				onSessionCreated: (identity) => this.captureSessionIdentity(identity),
+				onInitializationFailed: (session) => {
+					this.subagentSession = session;
+					this.closingRequested = true;
+				},
 				model: this.execution.model,
 				thinkingLevel: this.execution.thinkingLevel,
-			});
+			}));
 			this.subagentSession = await control.waitFor(createPromise);
 			this.captureSessionIdentity({
 				sessionId: this.subagentSession.sessionId,
 				outputFile: this.subagentSession.outputFile,
 			});
 
+			control.throwIfStopped();
 			stage = "prompt";
 			this.flushPendingSteers();
 			this.listeners.attachObserver(subscribeSubagentObserver(this.subagentSession, this.state, {
@@ -380,6 +407,7 @@ export class Subagent {
 		} finally {
 			control.dispose();
 			this.invocationInFlight = false;
+			if (this.closingRequested) void this.releaseSession();
 		}
 	}
 
@@ -437,15 +465,17 @@ export class Subagent {
 	 * The returned promise always resolves (errors are captured internally) and is
 	 * published as the `promise` getter, so waiters track the resume rather than
 	 * the settled handle of the original run.
-	 * The parent signal flows straight through to resumeTurnLoop — resume does not
-	 * route through this.abortController.
+	 * A scheduler reserves the invocation synchronously before admission. Foreground
+	 * cancellation stays wired to this invocation; background admission detaches it.
 	 */
 	resume(
 		prompt: string,
 		invocation: SubagentInvocationIdentity,
 		limits?: InvocationLimitOverrides,
 		signal?: AbortSignal,
+		options: ResumeSchedulingOptions = {},
 	): Promise<void> {
+		if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("Subagent invocation cancelled before admission"));
 		const subagentSession = this.subagentSession;
 		if (!subagentSession) {
 			// Rejection, not a throw: this method is not async, and a synchronous
@@ -455,6 +485,9 @@ export class Subagent {
 
 		if (this.isActive()) {
 			return Promise.reject(new Error(`Cannot resume active subagent ${this.id}`));
+		}
+		if (this.closingRequested || this.preparationInFlight || this.cleanupUnsafe) {
+			return Promise.reject(new Error(`Cannot resume subagent ${this.id}: session cleanup is pending or unsafe`));
 		}
 		if (this.invocationInFlight || this.turnLoopInFlight) {
 			return Promise.reject(
@@ -467,10 +500,18 @@ export class Subagent {
 		} catch (err) {
 			return Promise.reject(err);
 		}
+		this.terminalReceipt = undefined;
 		this._lifecycleInvocation = normalizedInvocation;
-		this._isBackground = false;
-		this._invocationIndex++;
-		this._promise = this.runResume(subagentSession, prompt, limits, signal);
+		this._isBackground = options.runInBackground === true;
+		const invocationIndex = ++this._invocationIndex;
+		this.currentLimits = this.resolveLimits(limits);
+		this.listeners.release();
+		this.state.resetForResume(Date.now(), options.schedule ? "queued" : "running");
+		const run = () => {
+			if (this.invocationIndex !== invocationIndex || !this.isActive()) return Promise.resolve();
+			return this.runResume(subagentSession, prompt, this.isBackground ? undefined : signal);
+		};
+		this._promise = options.schedule ? options.schedule(run, invocationIndex) : run();
 		return this._promise;
 	}
 
@@ -478,20 +519,19 @@ export class Subagent {
 	private async runResume(
 		subagentSession: SubagentSession,
 		prompt: string,
-		limits?: InvocationLimitOverrides,
 		signal?: AbortSignal,
 	): Promise<void> {
 		this.invocationInFlight = true;
 		this.abortController = new AbortController();
-		this.currentLimits = this.resolveLimits(limits);
-		this.resetForResume(Date.now());
+		this.markRunning(Date.now());
 		this.listeners.wireSignal(signal, () => this.abort());
 		this.listeners.attachObserver(subscribeSubagentObserver(subagentSession, this.state, {
 			onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
 		}));
-		const control = this.createInvocationControl(this.currentLimits);
+		const control = this.createInvocationControl(this.currentLimits!);
 
 		try {
+			control.throwIfStopped();
 			const result = await control.waitFor(
 				this.trackTurnLoop(subagentSession.resumeTurnLoop(prompt, this.turnLoopOptions(control))),
 			);
@@ -501,6 +541,7 @@ export class Subagent {
 		} finally {
 			control.dispose();
 			this.invocationInFlight = false;
+			if (this.closingRequested) void this.releaseSession();
 		}
 	}
 
@@ -563,19 +604,25 @@ export class Subagent {
 	 * the slot finally frees no-ops on guardedRun()'s guard — one notification.
 	 */
 	stopQueued(): void {
+		if (this.phase !== "queued") return;
 		this.state.markCancelled();
-		this.execution.observer?.onRunFinished?.(this);
+		this.finishQueuedInvocation();
 	}
 
-	queueTimedOut(timeoutMs: number): void {
+	queueTimedOut(timeoutMs: number, invocationIndex = this.invocationIndex): void {
 		// The limiter cannot remove one pending entry. A queued cancellation may
 		// therefore leave its timer armed; ignore that later timeout so it cannot
 		// publish a second terminal notification.
-		if (this.phase !== "queued") return;
+		if (this.phase !== "queued" || this.invocationIndex !== invocationIndex) return;
 		this.state.markQueueTimedOut(
 			`Subagent queue wait timed out after ${Math.ceil(timeoutMs / 1000)} seconds`,
 		);
-		this.execution.observer?.onRunFinished?.(this);
+		this.finishQueuedInvocation();
+	}
+
+	private finishQueuedInvocation(): void {
+		if (this.lifecycleInvocation.kind === "resume") this.execution.observer?.onResumeFinished?.(this);
+		else this.execution.observer?.onRunFinished?.(this);
 	}
 
 	/** Cancel the current invocation and release any non-cooperative waiter. */
@@ -636,26 +683,37 @@ export class Subagent {
 	 * Resolves once the child's extensions have shut down; a failing teardown is
 	 * swallowed so the caller's remaining cleanup still runs.
 	 */
-	async disposeSession(): Promise<void> {
-		await disposeQuietly(this.subagentSession, "child session dispose");
-	}
+	async disposeSession(): Promise<void> { await this.releaseSession(); }
 
-	/**
-	 * Release the heavy session while keeping the record: capture the transcript
-	 * pointer, dispose the session (firing `disposed`), clear it, and mark released.
-	 * A no-op once the session is gone — the retention sweep may call it repeatedly.
-	 *
-	 * The record's own state is updated before the teardown is awaited, so a sweep
-	 * tick arriving mid-teardown sees a released record rather than starting a
-	 * second one.
-	 */
+	/** Keep the session reachable (and leased) until every cleanup boundary is confirmed. */
 	async releaseSession(): Promise<void> {
+		this.closingRequested = true;
+		if (this.closeTask) return this.closeTask;
+		if (this.invocationInFlight || this.turnLoopInFlight || this.preparationInFlight || this.cleanupUnsafe || this.isActive()) return;
 		const session = this.subagentSession;
 		if (!session) return;
-		this.captureSessionIdentity({ sessionId: session.sessionId, outputFile: session.outputFile });
-		this.subagentSession = undefined;
-		this._sessionReleased = true;
-		await disposeQuietly(session, "child session release");
+		this.closeTask = this.closeSession(session);
+		await this.closeTask;
+	}
+
+	private async closeSession(session: SubagentSession): Promise<void> {
+		try {
+			const closed = await session.closeForRecovery(this.activeTools.size ? undefined : this.terminalReceipt);
+			if (!closed) return;
+			this.captureSessionIdentity({ sessionId: session.sessionId, outputFile: session.outputFile });
+			this.subagentSession = undefined;
+			this._sessionReleased = true;
+		} catch (error) { this.cleanupUnsafe = true; debugLog("child session close", error); }
+	}
+
+	private trackPreparation<T>(operation: Promise<T>): Promise<T> {
+		this.preparationInFlight++;
+		const settled = () => {
+			this.preparationInFlight--;
+			if (this.closingRequested) void this.releaseSession();
+		};
+		void operation.then(settled, settled);
+		return operation;
 	}
 
 	private createInvocationControl(limits: ResolvedInvocationLimits): InvocationControl {
@@ -676,8 +734,8 @@ export class Subagent {
 	private trackTurnLoop<T>(operation: Promise<T>): Promise<T> {
 		this.turnLoopInFlight = true;
 		void operation.then(
-			() => { this.turnLoopInFlight = false; },
-			() => { this.turnLoopInFlight = false; },
+			() => { this.turnLoopInFlight = false; if (this.closingRequested) void this.releaseSession(); },
+			() => { this.turnLoopInFlight = false; if (this.closingRequested) void this.releaseSession(); },
 		);
 		return operation;
 	}
@@ -730,6 +788,7 @@ export class Subagent {
 			try {
 				this.workspaceBracket.dispose({ outcome: status, description: this.description });
 			} catch (cleanupErr) {
+				this.cleanupUnsafe = true;
 				debugLog(`workspace dispose on agent ${status}`, cleanupErr);
 			}
 		}
@@ -743,8 +802,10 @@ export class Subagent {
 				try {
 					this.workspaceBracket.dispose({ outcome: this.outcome ?? "error", description: this.description });
 				} catch (error) {
+					this.cleanupUnsafe = true;
 					debugLog("late workspace dispose", error);
 				}
+				if (this.closingRequested) void this.releaseSession();
 			},
 			(error) => debugLog("late workspace prepare", error),
 		);
@@ -752,7 +813,10 @@ export class Subagent {
 
 	private disposeLateSession(create: Promise<SubagentSession>): void {
 		void create.then(
-			(session) => disposeQuietly(session, "late child session dispose"),
+			(session) => {
+				this.subagentSession = session;
+				return this.releaseSession();
+			},
 			(error) => debugLog("late child session creation", error),
 		);
 	}
@@ -776,7 +840,7 @@ export class Subagent {
 
 		try {
 			this.workspaceBracket.dispose({ outcome: "error", description: this.description });
-		} catch (cleanupErr) { debugLog("workspace dispose on agent error", cleanupErr); }
+		} catch (cleanupErr) { this.cleanupUnsafe = true; debugLog("workspace dispose on agent error", cleanupErr); }
 
 		this.execution.observer?.onRunFinished?.(this);
 	}
@@ -820,22 +884,6 @@ function normalizeInvocationIdentity(
 		throw new Error("Service-driven subagent invocation must not include toolCallId");
 	}
 	return { kind: identity.kind, source: "service" };
-}
-
-/**
- * Tear a child session down without letting its failure escape.
- * Both teardown paths are cleanup: a child that will not shut down cleanly must
- * not stop the caller from finishing the rest of its own cleanup.
- */
-async function disposeQuietly(
-	session: SubagentSession | undefined,
-	context: string,
-): Promise<void> {
-	try {
-		await session?.dispose();
-	} catch (err) {
-		debugLog(context, err);
-	}
 }
 
 /**

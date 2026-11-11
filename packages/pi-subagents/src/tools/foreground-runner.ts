@@ -1,6 +1,7 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
+import { withForegroundProgress } from "#src/tools/foreground-progress";
 import {
   buildDetails,
   formatLifetimeTokens,
@@ -9,8 +10,7 @@ import {
 } from "#src/tools/helpers";
 import type { ResolvedSpawnConfig } from "#src/tools/spawn-config";
 import type { ParentSessionInfo, Subagent } from "#src/types";
-import { type AgentDetails, describeActivity, formatMs } from "#src/ui/display";
-import { SPINNER } from "#src/ui/glyphs";
+import { type AgentDetails, formatMs } from "#src/ui/display";
 
 /** Narrow manager interface for the foreground runner. */
 export interface ForegroundManagerDeps {
@@ -40,46 +40,11 @@ export async function runForeground(
   onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
 ) {
   const { identity, execution, presentation } = params.config;
-  let spinnerFrame = 0;
-  const startedAt = Date.now();
-
   let recordRef: Subagent | undefined;
-
-  const streamUpdate = () => {
-    const toolUses = recordRef?.toolUses ?? 0;
-    const details: AgentDetails = {
-      ...presentation.detailBase,
-      toolUses,
-      tokens: recordRef ? formatLifetimeTokens(recordRef) : "",
-      // Read activity off the record; fall back to safe defaults before onSessionCreated fires
-      invocationTurnCount: recordRef?.invocationTurnCount ?? 0,
-      lifetimeTurnCount: recordRef?.lifetimeTurnCount ?? 0,
-      maxTurns: recordRef?.maxTurns ?? execution.effectiveMaxTurns,
-      durationMs: Date.now() - startedAt,
-      phase: "running",
-      activity: describeActivity(
-        recordRef?.activeTools ?? new Map(),
-        recordRef?.responseText ?? "",
-      ),
-      spinnerFrame: spinnerFrame % SPINNER.length,
-    };
-    onUpdate?.({
-      content: [{ type: "text", text: `${toolUses} tool uses...` }],
-      details,
-    });
-  };
-
-  // Animate spinner at ~80ms (smooth rotation through 10 braille frames)
-  const spinnerInterval = setInterval(() => {
-    spinnerFrame++;
-    streamUpdate();
-  }, 80);
-
-  streamUpdate();
 
   let record: Subagent;
   try {
-    record = await manager.spawnAndWait(
+    record = await withForegroundProgress(params.config, () => recordRef, onUpdate, () => manager.spawnAndWait(
       params.snapshot,
       identity.subagentType,
       execution.prompt,
@@ -100,13 +65,10 @@ export async function runForeground(
           },
         },
       },
-    );
+    ));
   } catch (err) {
-    clearInterval(spinnerInterval);
     return textResult(err instanceof Error ? err.message : String(err));
   }
-
-  clearInterval(spinnerInterval);
 
   // Foreground-return delivery edge: the result is handed back in this tool
   // result, so the outcome is collected. Mark it consumed.

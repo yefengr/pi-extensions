@@ -6,6 +6,7 @@ import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
 import { spawnBackground } from "#src/tools/background-spawner";
+import { withForegroundProgress } from "#src/tools/foreground-progress";
 import { runForeground } from "#src/tools/foreground-runner";
 import { buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
@@ -26,7 +27,10 @@ export interface AgentToolManager {
 		invocation: SubagentInvocationIdentity,
 		limits?: { maxTurns?: number; wrapUpTurns?: number; maxDurationSeconds?: number },
 		signal?: AbortSignal,
+		options?: { runInBackground?: boolean },
 	) => Promise<Subagent | undefined>;
+	getSavedRecord?: (id: string) => { type: string } | undefined;
+	restore?: (id: string, snapshot: ParentSnapshot, options: AgentSpawnConfig) => Promise<Subagent>;
 	getRecord: (id: string) => Subagent | undefined;
 }
 
@@ -65,20 +69,28 @@ export class AgentTool {
 		onUpdate: ((update: AgentToolResult<AgentDetails>) => void) | undefined,
 		_ctx: ExtensionContext,
 	) {
+		if (signal?.aborted) return textResult("Subagent invocation cancelled before initialization.");
 		// Reload custom agents so new .pi/agents/*.md files are picked up without restart
 		this.registry.reload();
 
 		// 恢复按原任务的真实类型校验，不能用另一个已启用类型绕过禁用。
-		const existing = params.resume ? this.manager.getRecord(params.resume as string) : undefined;
-		if (params.resume && !existing) {
+		let existing = params.resume ? this.manager.getRecord(params.resume as string) : undefined;
+		let saved: { type: string } | undefined;
+		try { saved = params.resume && !existing ? this.manager.getSavedRecord?.(params.resume as string) : undefined; }
+		catch (error) { return textResult(`Cold resume refused: ${error instanceof Error ? error.message : String(error)}`); }
+		if (params.resume && !existing && !saved) {
 			return textResult(
 				`Agent not found: "${params.resume as string}". Records are cleared at session start/switch, so it may be from a previous session.`,
 			);
 		}
 
 		// ---- Config resolution (pure) ----
+		const resumeType = existing?.type ?? saved?.type;
+		if (params.resume && resumeType && !this.registry.isValidType(resumeType)) {
+			return textResult(`Original agent type "${resumeType}" is missing or disabled.`);
+		}
 		const config = resolveSpawnConfig(
-			existing ? { ...params, subagent_type: existing.type } : params,
+			resumeType ? { ...params, subagent_type: resumeType } : params,
 			this.registry,
 			this.runtime.getModelInfo(),
 			this.settings,
@@ -91,29 +103,41 @@ export class AgentTool {
 		const parentSession: ParentSessionInfo = { parentSessionFile, parentSessionId, toolCallId };
 
 		// ---- Resume existing agent ----
-		if (params.resume && existing) {
-			if (!existing.isSessionReady()) {
-				if (existing.sessionReleased) {
-					return textResult(
-						`Agent "${params.resume as string}" had its session released after its retention window; resume is unavailable, but its result is still retrievable via get_subagent_result.`,
-					);
-				}
-				return textResult(
-					`Agent "${params.resume as string}" has no active session to resume.`,
-				);
+		if (params.resume) {
+			if (!existing?.isSessionReady()) {
+				if (this.manager.restore && (!existing || existing.sessionReleased)) {
+					try {
+						existing = await this.manager.restore(params.resume as string, snapshot, {
+							description: config.execution.description, parentSession, signal,
+							model: config.execution.model, thinkingLevel: config.execution.thinking,
+							maxTurns: config.execution.effectiveMaxTurns, wrapUpTurns: config.execution.effectiveWrapUpTurns,
+							maxDurationSeconds: config.execution.effectiveMaxDurationSeconds,
+							invocation: config.execution.agentInvocation,
+						});
+					} catch (error) {
+						return textResult(`Cold resume refused: ${error instanceof Error ? error.message : String(error)}`);
+					}
+				} else if (existing?.sessionReleased) {
+					return textResult(`Agent "${params.resume as string}" had its session released; cold resume is unavailable. Use get_subagent_result to read the saved result.`);
+				} else return textResult(`Agent "${params.resume as string}" has no active session to resume.`);
 			}
 			let record: Subagent | undefined;
+			const background = params.run_in_background === true;
+			const resume = () => this.manager.resume(
+				params.resume as string,
+				params.prompt as string,
+				{ kind: "resume", source: "tool", toolCallId },
+				{
+					maxTurns: config.execution.effectiveMaxTurns,
+					wrapUpTurns: config.execution.effectiveWrapUpTurns,
+					maxDurationSeconds: config.execution.effectiveMaxDurationSeconds,
+				},
+				signal,
+				...(background ? [{ runInBackground: true }] : []),
+			);
 			try {
-				record = await this.manager.resume(
-					params.resume as string,
-					params.prompt as string,
-					{ kind: "resume", source: "tool", toolCallId },
-					{
-						maxTurns: config.execution.effectiveMaxTurns,
-						wrapUpTurns: config.execution.effectiveWrapUpTurns,
-						maxDurationSeconds: config.execution.effectiveMaxDurationSeconds,
-					},
-					signal,
+				record = background ? await resume() : await withForegroundProgress(
+					config, () => this.manager.getRecord(params.resume as string), onUpdate, resume,
 				);
 			} catch (err) {
 				return textResult(
@@ -122,6 +146,12 @@ export class AgentTool {
 			}
 			if (!record) {
 				return textResult(`Failed to resume agent "${params.resume as string}".`);
+			}
+			if (background) {
+				return textResult(
+					`Agent ${record.phase === "queued" ? "queued" : "started"} in background.\nAgent ID: ${record.id}\nYou will be notified when this agent completes.`,
+					buildDetails(config.presentation.detailBase, record, { phase: "background" }),
+				);
 			}
 			// Resume-return delivery edge: the resumed outcome is returned directly.
 			record.markConsumed();

@@ -2,14 +2,18 @@
  * types.ts — Type definitions for the subagent system.
  */
 
-import type { Model, ThinkingLevel } from "@earendil-works/pi-ai";
-import type { AgentSessionEvent, SessionContext as SdkSessionContext } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
+import type { AgentSessionEvent, BuildSystemPromptOptions, ExtensionContext, SessionContext as SdkSessionContext } from "@earendil-works/pi-coding-agent";
+
+/** SDK levels include `off`, which must survive parent and invocation inheritance. */
+export type ThinkingLevel = NonNullable<ExtensionContext["thinkingLevel"]>;
+
 import type { ModelRegistry } from "#src/session/model-resolver";
 
 
 export type { SteerOutcome } from "#src/lifecycle/subagent";
 export { Subagent } from "#src/lifecycle/subagent";
-export type { AgentSessionEvent, ThinkingLevel };
+export type { AgentSessionEvent };
 
 /**
  * One message in a child session's history, typed from Pi's `SessionContext`.
@@ -94,6 +98,9 @@ export interface SessionContext {
   readonly cwd: string;
   readonly model: Model<any> | undefined;
   readonly modelRegistry: ModelRegistry;
+  readonly thinkingLevel?: ThinkingLevel;
+  isProjectTrusted?(): boolean;
+  getSystemPromptOptions?(): BuildSystemPromptOptions;
   getSystemPrompt(): string;
   readonly sessionManager: {
     getSessionFile(): string | undefined;
