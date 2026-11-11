@@ -14,7 +14,8 @@ describe("persistent child session ownership", () => {
     const lease = acquireSessionLease(file, "child-id");
     const bytes = readFileSync(lease.path, "utf8");
     expect(JSON.parse(bytes)).toEqual({ token: lease.token });
-    expect(statSync(lease.path).mode & 0o777).toBe(0o600);
+    // POSIX 必须保持 0600；Windows 的 stat 不报告创建模式，此处只验证真实文件与租约语义。
+    if (process.platform !== "win32") expect(statSync(lease.path).mode & 0o777).toBe(0o600);
     expect(existsSync(file)).toBe(false);
     expect(() => acquireSessionLease(file, "child-id")).toThrow(/already held/);
     expect(readFileSync(lease.path, "utf8")).toBe(bytes);
@@ -31,7 +32,8 @@ describe("persistent child session ownership", () => {
     const alias = join(root, "alias");
     mkdirSync(directory);
     mkdirSync(join(directory, "nested"));
-    symlinkSync(directory, alias, "dir");
+    // Windows 普通用户可创建 junction；两者都由生产 realpath 归一为同一目录，互斥语义不变。
+    symlinkSync(directory, alias, process.platform === "win32" ? "junction" : "dir");
     const lease = acquireSessionLease(join(directory, "nested", "..", "child.jsonl"), "child-id");
     expect(lease.path).toBe(join(directory, ".child-id.subagents-lease"));
     expect(() => acquireSessionLease(join(alias, "renamed.jsonl"), "child-id")).toThrow(/already held/);

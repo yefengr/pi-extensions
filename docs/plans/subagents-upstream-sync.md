@@ -1,6 +1,6 @@
 # 子代理扩展上游改进同步方案
 
-状态：A、B1、B2 与 C1–C5 均已完成本轮验收，A/B 基线提交为 `57cd867`。子代理包 81 文件、1470 项测试和 25 项跨包契约测试通过，相关类型与静态检查、外部消费者公开类型、文档链接及根 `verify` 均通过。C 已完成异模型族独立审查，无 P0–P3 finding；审查后冻结源码无漂移。本轮本地验收在 macOS 完成，Windows 客户端验证待在目标机器执行。本文保留实施前基线与设计约束，实际可用边界见[包说明](../../packages/pi-subagents/README.md#resuming-a-persisted-session)。
+状态：A、B1、B2 与 C1–C5 均已完成本轮验收，A/B 基线提交为 `57cd867`。子代理包 81 文件、1470 项测试和 25 项跨包契约测试通过，相关类型与静态检查、外部消费者公开类型、文档链接及根 `verify` 均通过。C 已完成异模型族独立审查，无 P0–P3 finding；审查后冻结源码无漂移。初轮本地验收在 macOS 完成；后续在 Windows 11 客户端以 Node 24.22.2 通过根 `verify`，并以 Node 22.23.4 通过子代理全量测试。Windows CI 配置已纳入子代理包，远端主运行时与最低 Node 22.19 矩阵待运行。本文保留实施前基线与设计约束，实际可用边界见[包说明](../../packages/pi-subagents/README.md#resuming-a-persisted-session)。
 
 ## 1. 方案结论
 

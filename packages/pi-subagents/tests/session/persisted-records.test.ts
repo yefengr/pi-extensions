@@ -1,3 +1,4 @@
+import { basename, dirname, join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { AgentTypeRegistry } from "#src/config/agent-types";
 import { buildLifecycleRecord } from "#src/lifecycle/lifecycle-record";
@@ -6,12 +7,20 @@ import { GetResultTool } from "#src/tools/get-result-tool";
 import { createTestSubagent } from "#test/helpers/make-subagent";
 
 function fixture() {
-  const file = "/sessions/parent/tasks/child.jsonl";
+  // 生产查询对记录路径和候选文件调用原生 resolve/relative；夹具必须用同一平台规范化，
+  // 否则 Windows 上 POSIX 字面量会被解析成带盘符的路径，与 mock 的 Map 键不一致。
+  const workspace = resolve("sessions", "fixture");
+  const parentFile = resolve(workspace, "parent.jsonl");
+  // 与 PersistedSubagentStore 的 tasks 目录推导保持一致。
+  const childDirectory = join(dirname(parentFile), basename(parentFile, ".jsonl"), "tasks");
+  const file = join(childDirectory, "child.jsonl");
+  const copyFile = join(childDirectory, "copy.jsonl");
+  const outsideFile = resolve(workspace, "outside", "child.jsonl");
   const record = buildLifecycleRecord(createTestSubagent({ id: "saved", outputFile: file }));
   const entry = { type: "custom", id: "terminal-entry", customType: "subagents:record", data: record };
-  const parent = { id: "parent-id", file: "/sessions/parent.jsonl", entries: [entry] as unknown[] };
+  const parent = { id: "parent-id", file: parentFile, entries: [entry] as unknown[] };
   const files = new Map([[file, JSON.stringify({ type: "session", version: 3, id: record.sessionId,
-    parentSession: parent.id, cwd: "/project" }) + "\n"]]);
+    parentSession: parent.id, cwd: resolve(workspace, "project") }) + "\n"]]);
   const readFile = vi.fn((path: string) => {
     const content = files.get(path);
     if (content === undefined) throw new Error("ENOENT");
@@ -21,7 +30,7 @@ function fixture() {
     readFile, realpath: (path) => path,
     listFiles: () => [...files.keys()],
   });
-  return { file, record, entry, parent, files, readFile, store };
+  return { file, copyFile, outsideFile, record, entry, parent, files, readFile, store };
 }
 
 describe("persisted subagent lookup", () => {
@@ -55,18 +64,18 @@ describe("persisted subagent lookup", () => {
   });
 
   it("refuses ambiguous duplicate child identities", () => {
-    const { store, files, file } = fixture();
-    files.set("/sessions/parent/tasks/copy.jsonl", files.get(file)!);
+    const { store, files, file, copyFile } = fixture();
+    files.set(copyFile, files.get(file)!);
     const saved = store.get("saved")!;
     expect(saved.outputFile).toBeUndefined();
     expect(saved.issues.join()).toContain("Multiple");
   });
 
   it("does not follow a transcript outside the original child directory", () => {
-    const { store, files, file, record } = fixture();
-    files.set("/outside/child.jsonl", files.get(file)!);
+    const { store, files, file, outsideFile, record } = fixture();
+    files.set(outsideFile, files.get(file)!);
     files.delete(file);
-    record.outputFile = "/outside/child.jsonl";
+    record.outputFile = outsideFile;
     expect(store.get("saved")!.outputFile).toBeUndefined();
   });
 
@@ -81,9 +90,9 @@ describe("persisted subagent lookup", () => {
   });
 
   it("rejects an out-of-directory recorded path even when a matching in-directory copy exists", () => {
-    const { store, files, file, record } = fixture();
-    files.set("/outside/child.jsonl", files.get(file)!);
-    record.outputFile = "/outside/child.jsonl";
+    const { store, files, file, outsideFile, record } = fixture();
+    files.set(outsideFile, files.get(file)!);
+    record.outputFile = outsideFile;
     const saved = store.get("saved")!;
     expect(saved.latest.result).toBe(record.result);
     expect(saved.outputFile).toBeUndefined();

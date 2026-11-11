@@ -14,10 +14,14 @@ test("Windows package jobs share Node limits and participate in the reusable req
   assert.match(windows, /runtime: \[primary, minimum\]/);
   assert.match(windows, /node-version-file: \.node-version/);
   assert.equal(/node-version: "([^"]+)"/.exec(windows)?.[1], root.engines.node.replace(/^>=/, ""));
-  for (const script of ["typecheck", "lint"]) {
-    assert.ok(windows.includes(`npm run ${script} -w @yefengr/pi-monitor -w @yefengr/pi-worktree`));
+  const windowsPackages = ["pi-monitor", "pi-worktree", "pi-subagents"];
+  for (const script of ["typecheck", "lint", "test"]) {
+    const command = new RegExp(`^\\s*run: npm (?:run )?${script} .*$`, "m").exec(windows)?.[0];
+    assert.ok(command, `windows job must run ${script}`);
+    for (const name of windowsPackages) {
+      assert.ok(command.includes(`-w @yefengr/${name}`), `windows ${script} must cover ${name}`);
+    }
   }
-  assert.ok(windows.includes("npm test -w @yefengr/pi-monitor -w @yefengr/pi-worktree"));
   // biome-ignore lint/complexity/noAdjacentSpacesInRegex: 两个空格是 YAML 缩进，必须原样匹配
   const gate = /^  verify:[\s\S]*$/m.exec(workflow)?.[0] ?? "";
   assert.match(gate, /needs: \[[^\]]*windows[^\]]*\]/);
