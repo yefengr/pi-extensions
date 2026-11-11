@@ -59,7 +59,7 @@ function expectNoTaskGuidance(options: BuildSystemPromptOptions) {
 
 describe("Task Status and Subagents SDK composition", () => {
   it.each([false, true])("excludes package loading and inherited guidance (cross cwd: %s)", async (crossCwd) => {
-    const root = mkdtempSync(join(tmpdir(), "task-status-sdk-"));
+    const root = mkdtempSync(join(tmpdir(), "任务状态 SDK #-"));
     const agentDir = join(root, "agent");
     const parentCwd = join(root, "parent");
     const childCwd = crossCwd ? join(root, "child") : parentCwd;

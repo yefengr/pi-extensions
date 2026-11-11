@@ -41,7 +41,7 @@ npm run pack:dry-run
 - `docs` 检查改动中的空白错误和已跟踪文档的站内链接；
 - `checks` 在代码改动时于 `.node-version` 运行时上运行 `npm run verify`；
 - `compat` 在 Node 22.19（根 `package.json` 的 `engines` 下限）上运行同一套 `npm run verify`；
-- `windows` 在 Windows Server 的主运行时与最低 Node 上验证 Monitor、Worktree 与 Subagents 的类型、lint 和测试（Monitor/Worktree 含真实 tarball smoke）；不能替代 Windows 10/11 客户端实测；
+- `windows` 在 Windows Server 的主运行时与最低 Node 上验证 Monitor、Worktree、Subagents 与 Task Status 的类型、lint 和测试（Monitor/Worktree 含真实 tarball smoke）；不能替代 Windows 10/11 客户端实测；
 - `verify` 汇总以上任务，是 `main` 分支保护要求的唯一检查。
 
 调整根 `verify` 或包脚本时同步修改工作流。`release.yml` 通过 `workflow_call` 复用同一套检查。
