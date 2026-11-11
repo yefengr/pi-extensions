@@ -1123,6 +1123,23 @@ function createResumableAgent(overrides?: {
 }
 
 describe("Subagent.resume() — happy path", () => {
+	it("exposes observed getters and clears prior response, tools and activity before the new prompt", async () => {
+		const state = new SubagentState({ phase: "running", responseText: "old response", activeTools: ["read"] });
+		state.noteProgress("tool");
+		state.markCompleted("first");
+		const { agent, stub, session } = createResumableAgent({ state });
+		expect(agent.lastProgressAt).toBeTypeOf("number");
+		stub.resumeTurnLoop.mockImplementationOnce(async () => {
+			expect(agent.responseText).toBe("");
+			expect(agent.activeTools.size).toBe(0);
+			expect(agent.observedActivity).toBeUndefined();
+			expect(agent.lastProgressAt).toBeUndefined();
+			session.emit({ type: "turn_start" });
+			expect(agent.observedActivity).toBe("model");
+			return { responseText: "new", outcome: "completed", wrappedUp: false };
+		});
+		await agent.resume("continue", RESUME_INVOCATION);
+	});
 	it("transitions to terminal/completed and sets result from the resume response", async () => {
 		const { agent } = createResumableAgent();
 		await agent.resume("continue", RESUME_INVOCATION);

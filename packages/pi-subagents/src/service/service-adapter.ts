@@ -10,6 +10,7 @@ import { AgentTypeRegistry } from "#src/config/agent-types";
 import { resolveAgentInvocationConfig } from "#src/config/invocation-config";
 import { clampWrapUpTurns } from "#src/config/resource-limits";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
+import { getSubagentProgress } from "#src/lifecycle/progress";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import type { SpawnOptions, SubagentRecord, SubagentsService } from "#src/service/service";
 import type { ModelRegistry } from "#src/session/model-resolver";
@@ -162,6 +163,7 @@ export function toSubagentRecord(record: Subagent): SubagentRecord {
     maxTurns: record.maxTurns,
     wrapUpTurns: record.wrapUpTurns,
     maxDurationSeconds: record.maxDurationSeconds,
+    progress: getSubagentProgress(record),
   };
 
   if (record.outcome !== undefined) out.outcome = record.outcome;

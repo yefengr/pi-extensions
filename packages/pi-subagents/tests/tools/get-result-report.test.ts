@@ -64,6 +64,10 @@ describe("renderStatsParts", () => {
 });
 
 describe("renderReportBody", () => {
+	it("limits a queued resume cancellation to the current invocation", () => {
+		const text = renderReportBody(makeReport({ invocationKind: "resume", outcome: "cancelled", stoppedWhileQueued: true }));
+		expect(text).toBe("This resume was stopped while queued; no new prompt was started.");
+	});
 	it("shows a still-running note for running status", () => {
 		const body = renderReportBody(makeReport({ phase: "running", result: undefined }));
 		expect(body).toBe("Agent is still running. Use wait: true or check back later.");
@@ -95,6 +99,14 @@ describe("renderReportBody", () => {
 });
 
 describe("formatAgentReport", () => {
+	it("includes current turns and observed progress age without inventing an unknown age", () => {
+		const progress = { activity: "Running tools: read", invocationTurnCount: 3, maxTurns: 6 };
+		const unknown = formatAgentReport(makeReport({ phase: "running", outcome: undefined, progress }));
+		expect(unknown).toContain("Activity: Running tools: read | Turns: 3/6");
+		expect(unknown).not.toContain("Last observed progress");
+		const known = formatAgentReport(makeReport({ progress: { ...progress, lastProgressAt: 1000, sinceLastProgressMs: 2500 } }));
+		expect(known).toContain("Last observed progress: 2s ago");
+	});
 	it("assembles the full header, stats line, description, and body", () => {
 		const text = formatAgentReport(
 			makeReport({

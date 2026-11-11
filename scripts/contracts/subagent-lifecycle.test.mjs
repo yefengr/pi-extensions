@@ -244,6 +244,65 @@ test("关闭检查点不会重复计量，冷恢复窗口连续且损坏尾部�
   assert.equal(incomplete.subagents.invocations, 2);
 });
 
+for (const outcome of ["cancelled", "queue_timeout"]) {
+  test(`后台resume排队${outcome}只计一次调用，不重复累计原对话usage`, async (t) => {
+    const childPath = await writeSession(t, [
+      header(3, { id: "child-session", parentSession: "parent" }),
+      user("cu1", null, 2), assistant("ca1", "cu1", 3),
+    ]);
+    const fresh = producedRecord({ outputFile: childPath });
+    const resumed = producedRecord({ outputFile: childPath, isBackground: true, outcome,
+      lifecycleInvocation: { kind: "resume", source: "tool" }, invocationIndex: 2,
+      toolCallId: "resume", invocationStartedAt: BASE_TIME + 5000, completedAt: BASE_TIME + 8000,
+      stoppedWhileQueued: true, invocationTurnCount: 0, lifetimeTurnCount: 1,
+      invocationUsage: ZERO_USAGE, lifetimeUsage: INVOCATION_USAGE,
+    });
+    const saved = parseSavedInvocation({ id: "resume-record", data: resumed });
+    const parsed = parseLifecycleRecord(resumed).record;
+    assert.equal(saved.record.isBackground, true);
+    assert.equal(parsed.invocationKind, "resume");
+    assert.equal(parsed.status, outcome);
+    const report = await reportFor(t, [fresh, resumed], {
+      readChildDirectory: async () => [childPath], loadChildSnapshot: loadSourceSnapshot,
+    });
+    assert.equal(report.coverage.complete, true, JSON.stringify({ coverage: report.coverage, subagents: report.subagents }));
+    assert.equal(report.subagents.invocations, 2);
+    assert.equal(report.subagents.resumes, 1);
+    assert.equal(report.subagents.sessions, 1);
+    assert.equal(report.usage.children.tokens.input, 10);
+  });
+}
+
+for (const scenario of ["nonzero turns", "nonzero usage", "nonzero tools", "successful outcome", "foreground resume", "missing turns", "legacy v2", "damaged tail"]) {
+  test(`空resume窗口不能掩盖${scenario}`, async (t) => {
+    const childPath = await writeSession(t, [header(3, { id: "child-session", parentSession: "parent" }),
+      user("cu1", null, 2), assistant("ca1", "cu1", 3)]);
+    const fresh = producedRecord({ outputFile: childPath });
+    let resumed = producedRecord({ outputFile: childPath, isBackground: scenario !== "foreground resume", outcome: scenario === "successful outcome" ? "completed" : "cancelled",
+      lifecycleInvocation: { kind: "resume", source: "tool" }, invocationIndex: 2,
+      toolCallId: "resume", invocationStartedAt: BASE_TIME + 5000, completedAt: BASE_TIME + 8000,
+      invocationTurnCount: scenario === "nonzero turns" ? 1 : 0, lifetimeTurnCount: 1,
+      invocationToolUses: scenario === "nonzero tools" ? 1 : 0, toolUses: scenario === "nonzero tools" ? 1 : 0,
+      invocationUsage: scenario === "nonzero usage" ? { input: 1, output: 0, cacheWrite: 0 } : ZERO_USAGE,
+      lifetimeUsage: scenario === "nonzero usage" ? { input: 11, output: 3, cacheWrite: 1 } : INVOCATION_USAGE,
+    });
+    if (scenario === "missing turns") delete resumed.invocationTurnCount;
+    if (scenario === "legacy v2") resumed = { ...resumed, recordVersion: 2, status: "stopped" };
+    if (scenario === "damaged tail") await appendFile(childPath, '{"type":');
+    const report = await reportFor(t, [fresh, resumed], {
+      readChildDirectory: async () => [childPath], loadChildSnapshot: loadSourceSnapshot,
+    });
+    assert.equal(report.coverage.complete, false);
+    if (scenario !== "damaged tail" && scenario !== "missing turns") assert.ok(report.subagents.issues.some((issue) => issue.code === "empty_child_window"));
+  });
+}
+
+test("即时观察字段不进入公共v3持久化协议", () => {
+  const record = producedRecord({ lastProgressAt: BASE_TIME, observedActivity: "tool", progress: { activity: PRIVATE_TEXT } });
+  for (const key of ["lastProgressAt", "observedActivity", "progress"]) assert.equal(key in record, false);
+  assert.equal(record.recordVersion, 3);
+});
+
 test("未来 producer 版本仍拒绝，不能因当前版本兼容而放松验证", async (t) => {
   const record = { ...producedRecord(), recordVersion: 4 };
   assert.deepEqual(parseLifecycleRecord(record), { record: null, unsupported: true });

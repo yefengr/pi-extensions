@@ -108,6 +108,8 @@ tools: read, grep, find, agent_browser
 
 Naming an extension's tool admits it when that extension registers it in the child. After binding extensions, every declared tool must be available; missing tools fail initialization with their names instead of disappearing silently. SDK built-ins (`codemode`, `tool_search`, and MCP) load only when the declared tools need them, respecting native disable settings and package exclusions. A tool list limits callable capabilities; it is not an operating-system sandbox.
 
+Tool declarations accept unambiguous case-insensitive spelling for known built-ins and parent-registered names. An exact registered name wins. The finite aliases are `read_file` → `read`, `write_file` → `write`, `edit_file` → `edit`, `shell` → `bash`, and `glob` → `find`. Ambiguous casing is refused. Wildcard spelling is normalized only where its literal parts have one confirmed interpretation; unknown names still require a match after child extensions bind. These rules preserve the declared allowlist and respect disabled or excluded extensions.
+
 Three names are always removed from a child, even when an agent lists them: `subagent`, `get_subagent_result`, and `steer_subagent`.
 This is the recursion guard — without it, an agent could spawn agents of its own without bound.
 

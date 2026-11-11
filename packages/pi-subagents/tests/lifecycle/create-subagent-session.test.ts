@@ -41,6 +41,13 @@ describe("createSubagentSession — assembly", () => {
     io.createSession.mockResolvedValue({ session });
   });
 
+  it("normalizes declared aliases before SDK admission", async () => {
+    const registry = { ...mockAgentLookup, getToolNamesForType: () => ["Read", "Shell", "Glob"] };
+    await createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" },
+      createSubagentSessionDeps({ io, exec, registry }));
+    expect(io.createSession).toHaveBeenCalledWith(expect.objectContaining({ tools: ["read", "bash", "find"] }));
+  });
+
   it("returns a born-complete SubagentSession wrapping the created session", async () => {
     const sub = await createSubagentSession(
       { snapshot: STUB_SNAPSHOT, type: "Explore" },

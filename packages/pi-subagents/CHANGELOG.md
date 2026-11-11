@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Allow explicit background resume for live and safely reopened sessions through the existing queue, rejecting duplicate active resumes and isolating stale queue callbacks by invocation.
+- Share foreground progress updates across fresh runs and resumes, and add a query-only `timeout_seconds` limit to result waits (default 60 seconds, range 1–3600).
+- Report observed activity, current invocation turns, and last progress age consistently in queries, tool output, widgets, and optional service snapshots, without adding persisted lifecycle fields or inferring stalls.
+- Normalize finite tool aliases and unambiguous casing before SDK admission; preserve exact registered names, reject ambiguity, and retain post-bind missing-tool checks.
+
 - Rebuild child environment instructions from verified structured prompt options, inherit thinking and project trust, and load SDK built-in extensions only for declared tools; require Pi SDK `>=1.5.1`.
 - Classify final model errors and empty responses within the current invocation, check cancellation before initialization, and retain ownership while underlying work or cleanup remains unsettled.
 - Read saved v2/v3 results and transcripts from the current parent-session branch after in-memory records disappear, reporting incomplete history without starting a model request.

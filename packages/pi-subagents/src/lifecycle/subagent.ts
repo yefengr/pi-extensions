@@ -100,6 +100,11 @@ export interface InvocationLimitOverrides {
 	maxDurationSeconds?: number;
 }
 
+export interface ResumeSchedulingOptions {
+	runInBackground?: boolean;
+	schedule?: (thunk: () => Promise<void>, invocationIndex: number) => Promise<void>;
+}
+
 export interface ResolvedInvocationLimits {
 	maxTurns: number;
 	wrapUpTurns: number;
@@ -172,6 +177,8 @@ export class Subagent {
 	get lifetimeTurnCount(): number { return this.state.lifetimeTurnCount; }
 	get activeTools(): ReadonlyMap<string, string> { return this.state.activeTools; }
 	get responseText(): string { return this.state.responseText; }
+	get lastProgressAt(): number | undefined { return this.state.lastProgressAt; }
+	get observedActivity() { return this.state.observedActivity; }
 	isActive(): boolean { return this.state.isActive(); }
 	isTerminalError(): boolean { return this.state.isTerminalError(); }
 	isRunning(): boolean { return this.state.isRunning(); }
@@ -458,15 +465,17 @@ export class Subagent {
 	 * The returned promise always resolves (errors are captured internally) and is
 	 * published as the `promise` getter, so waiters track the resume rather than
 	 * the settled handle of the original run.
-	 * The parent signal flows straight through to resumeTurnLoop — resume does not
-	 * route through this.abortController.
+	 * A scheduler reserves the invocation synchronously before admission. Foreground
+	 * cancellation stays wired to this invocation; background admission detaches it.
 	 */
 	resume(
 		prompt: string,
 		invocation: SubagentInvocationIdentity,
 		limits?: InvocationLimitOverrides,
 		signal?: AbortSignal,
+		options: ResumeSchedulingOptions = {},
 	): Promise<void> {
+		if (signal?.aborted) return Promise.reject(signal.reason ?? new Error("Subagent invocation cancelled before admission"));
 		const subagentSession = this.subagentSession;
 		if (!subagentSession) {
 			// Rejection, not a throw: this method is not async, and a synchronous
@@ -493,9 +502,16 @@ export class Subagent {
 		}
 		this.terminalReceipt = undefined;
 		this._lifecycleInvocation = normalizedInvocation;
-		this._isBackground = false;
-		this._invocationIndex++;
-		this._promise = this.runResume(subagentSession, prompt, limits, signal);
+		this._isBackground = options.runInBackground === true;
+		const invocationIndex = ++this._invocationIndex;
+		this.currentLimits = this.resolveLimits(limits);
+		this.listeners.release();
+		this.state.resetForResume(Date.now(), options.schedule ? "queued" : "running");
+		const run = () => {
+			if (this.invocationIndex !== invocationIndex || !this.isActive()) return Promise.resolve();
+			return this.runResume(subagentSession, prompt, this.isBackground ? undefined : signal);
+		};
+		this._promise = options.schedule ? options.schedule(run, invocationIndex) : run();
 		return this._promise;
 	}
 
@@ -503,18 +519,16 @@ export class Subagent {
 	private async runResume(
 		subagentSession: SubagentSession,
 		prompt: string,
-		limits?: InvocationLimitOverrides,
 		signal?: AbortSignal,
 	): Promise<void> {
 		this.invocationInFlight = true;
 		this.abortController = new AbortController();
-		this.currentLimits = this.resolveLimits(limits);
-		this.resetForResume(Date.now());
+		this.markRunning(Date.now());
 		this.listeners.wireSignal(signal, () => this.abort());
 		this.listeners.attachObserver(subscribeSubagentObserver(subagentSession, this.state, {
 			onCompact: (info) => this.execution.observer?.onCompacted?.(this, info),
 		}));
-		const control = this.createInvocationControl(this.currentLimits);
+		const control = this.createInvocationControl(this.currentLimits!);
 
 		try {
 			control.throwIfStopped();
@@ -590,19 +604,25 @@ export class Subagent {
 	 * the slot finally frees no-ops on guardedRun()'s guard — one notification.
 	 */
 	stopQueued(): void {
+		if (this.phase !== "queued") return;
 		this.state.markCancelled();
-		this.execution.observer?.onRunFinished?.(this);
+		this.finishQueuedInvocation();
 	}
 
-	queueTimedOut(timeoutMs: number): void {
+	queueTimedOut(timeoutMs: number, invocationIndex = this.invocationIndex): void {
 		// The limiter cannot remove one pending entry. A queued cancellation may
 		// therefore leave its timer armed; ignore that later timeout so it cannot
 		// publish a second terminal notification.
-		if (this.phase !== "queued") return;
+		if (this.phase !== "queued" || this.invocationIndex !== invocationIndex) return;
 		this.state.markQueueTimedOut(
 			`Subagent queue wait timed out after ${Math.ceil(timeoutMs / 1000)} seconds`,
 		);
-		this.execution.observer?.onRunFinished?.(this);
+		this.finishQueuedInvocation();
+	}
+
+	private finishQueuedInvocation(): void {
+		if (this.lifecycleInvocation.kind === "resume") this.execution.observer?.onResumeFinished?.(this);
+		else this.execution.observer?.onRunFinished?.(this);
 	}
 
 	/** Cancel the current invocation and release any non-cooperative waiter. */

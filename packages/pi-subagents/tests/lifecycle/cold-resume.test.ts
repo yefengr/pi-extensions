@@ -60,6 +60,8 @@ describe("cold resume coordination", () => {
     expect(agent.type).toBe(fixture.record.type);
     expect(agent.sessionId).toBe(fixture.child.getSessionId());
     expect(agent.outputFile).toBe(fixture.file);
+    expect(agent.lastProgressAt).toBeUndefined();
+    expect(agent.observedActivity).toBeUndefined();
     expect(agent.invocationIndex).toBe(1);
     expect(agent.lifetimeUsage).toMatchObject({ input: 11, output: 4, cacheWrite: 3 });
     expect(agent.toolUses).toBe(1);
@@ -304,7 +306,12 @@ describe("real SDK offline cold recovery", () => {
     expect(sdkSessions[2].messages.some((message) => message.role === "assistant")).toBe(true);
     expect(open).toHaveBeenCalledExactlyOnceWith(outputFile);
     expect(readdirSync(fixture.childDirectory).filter((name) => !name.endsWith("subagents-lease")).sort()).toEqual(filesBefore);
-    await restarted.resume(id, "continue SDK task", { kind: "resume", source: "tool", toolCallId: "sdk-resume-call" });
+    const admitted = await restarted.resume(id, "continue SDK task", { kind: "resume", source: "tool", toolCallId: "sdk-resume-call" },
+      undefined, undefined, { runInBackground: true });
+    expect(admitted).toBe(recovered);
+    expect(recovered.isBackground).toBe(true);
+    expect(recovered.consumed).toBe(false);
+    await recovered.promise;
     expect(recovered.outcome, recovered.error).toBe("completed");
     expect(recovered.result).toBe("resumed SDK answer");
     expect(recovered.invocationIndex).toBe(2);

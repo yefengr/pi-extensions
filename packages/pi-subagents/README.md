@@ -114,7 +114,7 @@ The LLM receives structured `<task-notification>` XML for parsing, while the use
 
 ### `subagent`
 
-Launch a sub-agent.
+Launch or resume a sub-agent.
 
 | Parameter           | Type         | Required | Description                                                      |
 | ------------------- | ------------ | -------- | ---------------------------------------------------------------- |
@@ -126,7 +126,7 @@ Launch a sub-agent.
 | `max_turns`         | integer      | no       | Strict hard maximum for model turns; can only tighten the configured limit |
 | `wrap_up_turns`     | integer      | no       | Turns reserved within `max_turns` for a final response; defaults from the profile or global setting |
 | `max_duration_seconds` | integer   | no       | Execution-time limit in seconds; can only tighten the configured limit |
-| `run_in_background` | boolean      | no       | Run without blocking                                             |
+| `run_in_background` | boolean      | no       | Background execution; resume requires explicit true |
 | `resume`            | string       | no       | Agent ID to resume a previous session                            |
 | `inherit_context`   | boolean      | no       | Prepend parent conversation text and summaries to the fresh task |
 
@@ -138,13 +138,20 @@ Check status and retrieve results from a background agent. Once an in-memory rec
 | ---------- | ------- | -------- | ----------------------------- |
 | `agent_id` | string  | yes      | Agent ID to check             |
 | `wait`     | boolean | no       | Wait for completion           |
+| `timeout_seconds` | integer | no | Query wait limit, 1–3600 seconds; defaults to 60 when waiting |
 | `verbose`  | boolean | no       | Include full conversation log |
+
+With `wait: true`, reaching the query deadline returns the current status and progress while execution continues. Interrupting that query also leaves the task running. The wait limit changes neither the task's execution budget nor whether its result has been collected.
 
 ### Resuming a persisted session
 
 Use `subagent` with `resume: "<agent-id>"` and a new prompt. If the live session was released, the tool can reopen its original transcript within the same parent session and current branch. The original role must still be enabled, the original working directory must exist, and the latest v3 terminal record must match a private close checkpoint written after confirmed cleanup. The agent ID, child session ID, and invocation sequence continue; each new invocation starts with zeroed counters while retaining verified lifetime totals.
 
-Older v2/v3 records without that checkpoint remain readable but cannot be resumed. A missing or damaged file, unfinished tail, changed branch or cwd, unknown format, or existing ownership marker causes refusal without creating a replacement session. Ownership uses a local exclusive marker shared by this extension's instances. A timeout does not prove that a tool stopped, and crash markers are never removed based on PID or age. Direct opening by third-party tools is outside this protection. Initialization failures that cannot confirm extension cleanup also retain ownership; the error reports the marker path for diagnosis. Background and cross-parent recovery are unsupported.
+Older v2/v3 records without that checkpoint remain readable but cannot be resumed. A missing or damaged file, unfinished tail, changed branch or cwd, unknown format, or existing ownership marker causes refusal without creating a replacement session. Ownership uses a local exclusive marker shared by this extension's instances. A timeout does not prove that a tool stopped, and crash markers are never removed based on PID or age. Direct opening by third-party tools is outside this protection. Initialization failures that cannot confirm extension cleanup also retain ownership; the error reports the marker path for diagnosis. Cross-parent recovery is unsupported.
+
+Both live and persisted resumes default to foreground execution, with progress updates followed by the final result. Set `run_in_background: true` to queue the next invocation under the existing concurrency and queue-wait limits. A second resume is refused while that invocation is queued or running. After background admission, ending the caller's tool invocation does not cancel the child.
+
+Status queries, tool output, and the widget share the current activity, invocation turn count, and time since the last observed SDK progress event. Unknown progress times remain absent; a long gap alone does not label a task stalled.
 
 ### `steer_subagent`
 
@@ -189,7 +196,7 @@ Every invocation has finite limits. The defaults are `max_turns: 30`, `wrap_up_t
 
 Profile and invocation values for `max_turns` and `max_duration_seconds` can only tighten the global ceiling. The effective value is the smallest valid value from global settings, profile frontmatter, and tool call. The wrap-up window uses invocation, then profile, then global precedence and is clamped to `0..max_turns - 1`.
 
-The execution clock starts when a child is admitted to run and includes workspace preparation, session construction, model calls, and tools. Background queue time is excluded from that clock and bounded separately. A queue timeout becomes terminal without starting a child session. On an execution timeout or cancellation, the runtime requests cooperative abort and releases the parent waiter and concurrency slot after `abort_grace_seconds` if the child remains unsettled; tools that ignore `AbortSignal` cannot be forcibly terminated inside this shared process. A terminal cancellation cannot be resumed until its prior turn loop has settled.
+The execution clock starts when a child is admitted to run and includes workspace preparation, session construction, model calls, and tools. Background queue time is excluded from that clock and bounded separately. A queue timeout starts no new execution; a queued resume retains its existing child session. On an execution timeout or cancellation, the runtime requests cooperative abort and releases the parent waiter and concurrency slot after `abort_grace_seconds` if the child remains unsettled; tools that ignore `AbortSignal` cannot be forcibly terminated inside this shared process. A terminal cancellation cannot be resumed until its prior turn loop has settled.
 
 ## Concurrency
 
@@ -297,6 +304,7 @@ svc?.spawn("general-purpose", "Check for stale TODOs");
 ```
 
 Declare this package as an optional peer dependency.
+`SubagentRecord.progress` is an optional snapshot of observed activity, current invocation turns, and the last progress time and age when known. The exported `SubagentProgress` type describes that snapshot; it adds no fields to the persisted lifecycle v3 protocol.
 See `src/service/service.ts` for the full `SubagentsService` interface and the `WorkspaceProvider` seam.
 
 ### `@yefengr/pi-subagents/settings` — layered config loader

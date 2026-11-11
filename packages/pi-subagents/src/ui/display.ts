@@ -31,6 +31,9 @@ export interface AgentDetails {
   outcome?: SubagentOutcome;
   /** Human-readable description of what the agent is currently doing. */
   activity?: string;
+  /** Wall time of actual observed SDK activity; absent before the first observation. */
+  lastProgressAt?: number;
+  sinceLastProgressMs?: number;
   /** Current spinner frame index (for animated running indicator). */
   spinnerFrame?: number;
   /** Short model name if different from parent (e.g. "haiku", "sonnet"). */
@@ -183,6 +186,22 @@ function truncateLine(text: string, len = 60): string {
   const line = text.split("\n").find(l => l.trim())?.trim() ?? "";
   if (line.length <= len) return line;
   return line.slice(0, len) + "…";
+}
+
+/** Localize only extension-owned progress labels, preserving registered tool names. */
+export function formatObservedActivity(activity: string): string {
+  const toolsPrefix = "Running tools: ";
+  if (activity.startsWith(toolsPrefix)) return `正在执行工具：${activity.slice(toolsPrefix.length)}`;
+  switch (activity) {
+    case "Queued": return "排队中";
+    case "Terminal state": return "已记录调用终态";
+    case "Compacting context": return "正在压缩上下文";
+    case "Model turn in progress": return "已观察到模型活动";
+    case "Tool activity observed": return "已观察到工具活动";
+    case "Writing response": return "已观察到回答输出";
+    case "Running; no activity observed yet": return "运行中，尚未观察到活动";
+    default: return activity;
+  }
 }
 
 /** Build a human-readable activity string from currently-running tools or response text. */

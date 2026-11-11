@@ -95,6 +95,80 @@ describe("AgentTool", () => {
 });
 
 describe("AgentTool — resume path", () => {
+	it("accepts only explicit background resume and returns the original ID without consumption", async () => {
+		const deps = createToolDeps();
+		const record = createTestSubagent({ id: "original", phase: "queued" });
+		record.subagentSession = toSubagentSession(createSubagentSessionStub());
+		deps.manager.getRecord = vi.fn().mockReturnValue(record);
+		deps.manager.resume = vi.fn().mockResolvedValue(record);
+		const update = vi.fn();
+		const result = await makeTool(deps).execute("resume-call", {
+			prompt: "continue", description: "resume", resume: "original", run_in_background: true,
+		}, undefined, update, makeCtx());
+		expect(result.content[0].text).toContain("queued in background");
+		expect(result.content[0].text).toContain("Agent ID: original");
+		expect(deps.manager.resume).toHaveBeenCalledWith("original", "continue", expect.anything(), expect.anything(), undefined, { runInBackground: true });
+		expect(record.consumed).toBe(false);
+		expect(update).not.toHaveBeenCalled();
+	});
+
+	it.each([false, true])("streams current invocation for cold=%s, awaits the final result and cleans the timer", async (cold) => {
+		vi.useFakeTimers();
+		try {
+			const deps = createToolDeps();
+			const record = createTestSubagent({ toolUses: 9, invocationTurnCount: 8, responseText: "old response", activeTools: ["read"] });
+			const stub = createSubagentSessionStub();
+			const gate = Promise.withResolvers<{ responseText: string; outcome: "completed"; wrappedUp: boolean }>();
+			stub.resumeTurnLoop.mockReturnValue(gate.promise);
+			record.subagentSession = toSubagentSession(stub);
+			let restored = !cold;
+			deps.manager.getRecord = vi.fn(() => restored ? record : undefined);
+			if (cold) Object.assign(deps.manager, {
+				getSavedRecord: vi.fn(() => ({ type: "general-purpose" })),
+				restore: vi.fn(async () => { restored = true; return record; }),
+			});
+			deps.manager.resume = vi.fn(async () => {
+				await record.resume("continue", { kind: "resume", source: "tool", toolCallId: "stream" });
+				return record;
+			});
+			const consumed = vi.spyOn(record, "markConsumed");
+			const onUpdate = vi.fn();
+			const running = makeTool(deps).execute("stream", {
+				prompt: "continue", description: "resume", resume: "agent-1",
+			}, undefined, onUpdate, makeCtx());
+			let returned = false;
+			void running.then(() => { returned = true; });
+			await vi.advanceTimersByTimeAsync(160);
+			expect(returned).toBe(false);
+			expect(onUpdate.mock.lastCall?.[0].details).toMatchObject({ toolUses: 0, invocationTurnCount: 0, activity: "Running; no activity observed yet" });
+			expect(record.lastProgressAt).toBeUndefined();
+			gate.resolve({ responseText: "final resumed answer", outcome: "completed", wrappedUp: false });
+			const result = await running;
+			expect(result.content[0].text).toBe("final resumed answer");
+			expect(consumed).toHaveBeenCalledTimes(1);
+			onUpdate.mockClear();
+			await vi.advanceTimersByTimeAsync(240);
+			expect(onUpdate).not.toHaveBeenCalled();
+		} finally { vi.useRealTimers(); }
+	});
+
+	it("cleans foreground progress after resume rejection", async () => {
+		vi.useFakeTimers();
+		try {
+			const deps = createToolDeps();
+			const record = createTestSubagent();
+			record.subagentSession = toSubagentSession(createSubagentSessionStub());
+			deps.manager.getRecord = vi.fn(() => record);
+			deps.manager.resume = vi.fn().mockRejectedValue(new Error("resume failed"));
+			const update = vi.fn();
+			const result = await makeTool(deps).execute("failed", { resume: "agent-1", prompt: "next", description: "resume" }, undefined, update, makeCtx());
+			expect(result.content[0].text).toContain("resume failed");
+			update.mockClear();
+			await vi.advanceTimersByTimeAsync(160);
+			expect(update).not.toHaveBeenCalled();
+			expect(record.consumed).toBe(false);
+		} finally { vi.useRealTimers(); }
+	});
 	it("refuses an already cancelled request before initialization", async () => {
 		const deps = createToolDeps();
 		const controller = new AbortController();

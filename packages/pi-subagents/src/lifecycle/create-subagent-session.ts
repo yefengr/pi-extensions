@@ -30,6 +30,7 @@ import { createPromptInheritanceExtension, inheritPromptOptions } from "#src/ses
 import type { CheckpointManager } from "#src/session/recovery-checkpoint";
 import { type AssemblerIO, assembleSessionConfig } from "#src/session/session-config";
 import type { SessionLease } from "#src/session/session-lease";
+import { normalizeToolNames } from "#src/session/tool-names";
 import type {
   ParentSessionInfo,
   ShellExec,
@@ -220,6 +221,7 @@ export async function createSubagentSession(
     deps.io.assemblerIO,
   );
 
+  cfg.toolNames = normalizeToolNames(cfg.toolNames, snapshot.availableTools);
   const agentDir = deps.io.getAgentDir();
   const projectTrusted = resolve(cfg.effectiveCwd) === resolve(snapshot.cwd)
     ? snapshot.projectTrusted === true

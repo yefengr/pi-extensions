@@ -8,6 +8,38 @@ function makeState() {
 }
 
 describe("subscribeSubagentObserver", () => {
+  it("advances observed activity only on recognized SDK events, hides thinking and ignores terminal late progress", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(100);
+    try {
+      const session = createMockSession();
+      const state = makeState();
+      subscribeSubagentObserver(session, state);
+      session.emit({ type: "agent_start" });
+      expect(state.lastProgressAt).toBeUndefined();
+      session.emit({ type: "turn_start" });
+      expect(state.observedActivity).toBe("model");
+      expect(state.lastProgressAt).toBe(100);
+      clock.mockReturnValue(200);
+      session.emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "private reasoning" } });
+      expect(state.observedActivity).toBe("model");
+      expect(state.responseText).toBe("");
+      session.emit({ type: "message_start", message: { role: "assistant" } });
+      expect(state.observedActivity).toBe("response");
+      session.emit({ type: "tool_execution_update", toolName: "read" });
+      expect(state.observedActivity).toBe("tool");
+      session.emit({ type: "compaction_start" });
+      expect(state.observedActivity).toBe("compacting");
+      session.emit({ type: "compaction_end", aborted: true });
+      expect(state.observedActivity).toBe("model");
+      expect(state.lastProgressAt).toBe(200);
+      clock.mockReturnValue(300);
+      session.emit({ type: "unrecognized_progress" });
+      expect(state.lastProgressAt).toBe(200);
+      state.markCompleted("done");
+      session.emit({ type: "turn_start" });
+      expect(state.lastProgressAt).toBe(200);
+    } finally { clock.mockRestore(); }
+  });
   it("increments state.toolUses on tool_execution_end", () => {
     const session = createMockSession();
     const state = makeState();

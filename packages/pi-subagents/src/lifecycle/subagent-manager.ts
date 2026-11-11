@@ -258,11 +258,31 @@ export class SubagentManager {
     invocation: SubagentInvocationIdentity,
     limits?: InvocationLimitOverrides,
     signal?: AbortSignal,
+    options?: { runInBackground?: boolean },
   ): Promise<Subagent | undefined> {
     this.assertOpen();
+    signal?.throwIfAborted();
     const agent = this.agents.get(id);
     if (!agent?.isSessionReady()) return undefined;
-    await agent.resume(prompt, invocation, limits, signal);
+    if (options?.runInBackground === true) {
+      const timeoutMs = (this.getRunConfig?.().maxQueueWaitSeconds ?? 900) * 1000;
+      // resume reserves synchronously, including queued work. Never await its run
+      // here: background admission returns the existing record immediately.
+      const previousIndex = agent.invocationIndex;
+      const run = agent.resume(prompt, invocation, limits, signal, {
+        runInBackground: true,
+        schedule: (thunk, invocationIndex) => this.limiter.schedule(thunk, {
+          timeoutMs,
+          onTimeout: () => agent.queueTimedOut(timeoutMs, invocationIndex),
+        }),
+      });
+      // Validation refusals leave the old invocation untouched and must reach the
+      // caller; accepted run failures are captured by Subagent's terminal funnel.
+      if (agent.invocationIndex === previousIndex) await run;
+      void run.catch((error) => debugLog("background resume", error));
+    } else {
+      await agent.resume(prompt, invocation, limits, signal);
+    }
     return agent;
   }
 

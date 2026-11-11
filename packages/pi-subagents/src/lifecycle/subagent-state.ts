@@ -21,6 +21,8 @@
 import type { LifetimeUsage } from "#src/lifecycle/usage";
 import { addUsage } from "#src/lifecycle/usage";
 
+export type ObservedActivity = "model" | "response" | "tool" | "compacting";
+
 export type SubagentPhase = "queued" | "running" | "terminal";
 export type SubagentOutcome =
 	| "completed"
@@ -130,6 +132,18 @@ export class SubagentState {
 
 	private _responseText: string;
 	get responseText(): string { return this._responseText; }
+
+	private _lastProgressAt?: number;
+	get lastProgressAt(): number | undefined { return this._lastProgressAt; }
+	private _observedActivity?: ObservedActivity;
+	get observedActivity(): ObservedActivity | undefined { return this._observedActivity; }
+
+	/** Only actual SDK events may call this; terminal late events cannot refresh it. */
+	noteProgress(activity: ObservedActivity): void {
+		if (!this.isRunning()) return;
+		this._lastProgressAt = Date.now();
+		this._observedActivity = activity;
+	}
 
 	constructor(init: SubagentStateInit = {}) {
 		this._phase = init.phase ?? "queued";
@@ -270,8 +284,8 @@ export class SubagentState {
 	}
 
 	/** Open a new resume invocation while preserving lifetime totals. */
-	resetForResume(startedAt: number): void {
-		this._phase = "running";
+	resetForResume(startedAt: number, phase: "running" | "queued" = "running"): void {
+		this._phase = phase;
 		this._outcome = undefined;
 		this._startedAt = startedAt;
 		this._invocationStartedAt = startedAt;
@@ -283,6 +297,10 @@ export class SubagentState {
 		this._error = undefined;
 		this._consumedAt = undefined;
 		this._stoppedWhileQueued = false;
+		this._responseText = "";
+		this._activeTools.clear();
+		this._observedActivity = undefined;
+		this._lastProgressAt = undefined;
 	}
 
 	private markResult(outcome: "completed" | "turn_limit", result: string, completedAt?: number): void {

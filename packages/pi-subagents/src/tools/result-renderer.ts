@@ -7,7 +7,7 @@
  */
 
 import type { AgentDetails, Theme } from "#src/ui/display";
-import { formatMs, formatTurns, getOutcomeLabel } from "#src/ui/display";
+import { formatMs, formatObservedActivity, formatTurns, getOutcomeLabel } from "#src/ui/display";
 import { GLYPHS, SPINNER } from "#src/ui/glyphs";
 
 // ---- Dispatcher ----
@@ -37,7 +37,9 @@ export function renderRunning(details: AgentDetails, theme: Theme): string {
 	const frame = SPINNER[details.spinnerFrame ?? 0];
 	const s = renderStats(details, theme);
 	let line = theme.fg("accent", frame) + (s ? " " + s : "");
-	line += "\n" + theme.fg("dim", `  ${GLYPHS.subLine}  ${details.activity ?? "thinking\u2026"}`);
+	const activity = details.activity ? formatObservedActivity(details.activity) : "尚未观察到活动";
+	const recent = details.sinceLastProgressMs === undefined ? "" : ` · 最近进展：${formatMs(details.sinceLastProgressMs)}前`;
+	line += "\n" + theme.fg("dim", `  ${GLYPHS.subLine}  ${activity}${recent}`);
 	return line;
 }
 

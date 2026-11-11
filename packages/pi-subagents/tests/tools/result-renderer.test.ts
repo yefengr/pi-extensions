@@ -66,10 +66,17 @@ describe("renderRunning", () => {
     expect(result).toContain("reading files");
   });
 
+  it("renders observed progress and age using extension-owned Chinese labels", () => {
+    const result = renderRunning(makeDetails({ phase: "running", activity: "Running tools: read",
+      lastProgressAt: 1000, sinceLastProgressMs: 2000 }), theme);
+    expect(result).toContain("正在执行工具：read");
+    expect(result).toContain("最近进展：2.0s前");
+  });
+
   it("uses defaults for missing spinner and activity", () => {
     const result = renderRunning(makeDetails({ phase: "running" }), theme);
     expect(result).toContain("[accent:⠋]");
-    expect(result).toContain("thinking…");
+    expect(result).toContain("尚未观察到活动");
   });
 });
 

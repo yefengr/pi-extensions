@@ -6,6 +6,7 @@ import { AgentTypeRegistry } from "#src/config/agent-types";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { AgentSpawnConfig } from "#src/lifecycle/subagent-manager";
 import { spawnBackground } from "#src/tools/background-spawner";
+import { withForegroundProgress } from "#src/tools/foreground-progress";
 import { runForeground } from "#src/tools/foreground-runner";
 import { buildAgentGuidelines, buildDetails, buildTypeListText, textResult } from "#src/tools/helpers";
 import { renderAgentResult } from "#src/tools/result-renderer";
@@ -26,6 +27,7 @@ export interface AgentToolManager {
 		invocation: SubagentInvocationIdentity,
 		limits?: { maxTurns?: number; wrapUpTurns?: number; maxDurationSeconds?: number },
 		signal?: AbortSignal,
+		options?: { runInBackground?: boolean },
 	) => Promise<Subagent | undefined>;
 	getSavedRecord?: (id: string) => { type: string } | undefined;
 	restore?: (id: string, snapshot: ParentSnapshot, options: AgentSpawnConfig) => Promise<Subagent>;
@@ -87,7 +89,6 @@ export class AgentTool {
 		if (params.resume && resumeType && !this.registry.isValidType(resumeType)) {
 			return textResult(`Original agent type "${resumeType}" is missing or disabled.`);
 		}
-		if (params.resume && params.run_in_background === true) return textResult("Background resume is unsupported.");
 		const config = resolveSpawnConfig(
 			resumeType ? { ...params, subagent_type: resumeType } : params,
 			this.registry,
@@ -121,17 +122,22 @@ export class AgentTool {
 				} else return textResult(`Agent "${params.resume as string}" has no active session to resume.`);
 			}
 			let record: Subagent | undefined;
+			const background = params.run_in_background === true;
+			const resume = () => this.manager.resume(
+				params.resume as string,
+				params.prompt as string,
+				{ kind: "resume", source: "tool", toolCallId },
+				{
+					maxTurns: config.execution.effectiveMaxTurns,
+					wrapUpTurns: config.execution.effectiveWrapUpTurns,
+					maxDurationSeconds: config.execution.effectiveMaxDurationSeconds,
+				},
+				signal,
+				...(background ? [{ runInBackground: true }] : []),
+			);
 			try {
-				record = await this.manager.resume(
-					params.resume as string,
-					params.prompt as string,
-					{ kind: "resume", source: "tool", toolCallId },
-					{
-						maxTurns: config.execution.effectiveMaxTurns,
-						wrapUpTurns: config.execution.effectiveWrapUpTurns,
-						maxDurationSeconds: config.execution.effectiveMaxDurationSeconds,
-					},
-					signal,
+				record = background ? await resume() : await withForegroundProgress(
+					config, () => this.manager.getRecord(params.resume as string), onUpdate, resume,
 				);
 			} catch (err) {
 				return textResult(
@@ -140,6 +146,12 @@ export class AgentTool {
 			}
 			if (!record) {
 				return textResult(`Failed to resume agent "${params.resume as string}".`);
+			}
+			if (background) {
+				return textResult(
+					`Agent ${record.phase === "queued" ? "queued" : "started"} in background.\nAgent ID: ${record.id}\nYou will be notified when this agent completes.`,
+					buildDetails(config.presentation.detailBase, record, { phase: "background" }),
+				);
 			}
 			// Resume-return delivery edge: the resumed outcome is returned directly.
 			record.markConsumed();

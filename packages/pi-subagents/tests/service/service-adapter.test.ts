@@ -52,6 +52,7 @@ describe("toSubagentRecord", () => {
       maxTurns: 30,
       wrapUpTurns: 2,
       maxDurationSeconds: 1800,
+      progress: { activity: "Terminal state", invocationTurnCount: 1, maxTurns: 30 },
     });
   });
 
@@ -60,6 +61,15 @@ describe("toSubagentRecord", () => {
     record.subagentSession = toSubagentSession(createSubagentSessionStub(createMockSession()));
     const result = toSubagentRecord(record);
     expect(result).not.toHaveProperty("subagentSession");
+  });
+
+  it("returns an isolated serializable progress snapshot", () => {
+    const record = createTestSubagent({ phase: "running", activeTools: ["read"], completedAt: undefined });
+    const first = toSubagentRecord(record);
+    expect(first.progress).toEqual({ activity: "Running tools: read", invocationTurnCount: 1, maxTurns: 30 });
+    first.progress!.activity = "consumer mutation";
+    expect(toSubagentRecord(record).progress!.activity).toBe("Running tools: read");
+    expect(JSON.parse(JSON.stringify(first)).progress.activity).toBe("consumer mutation");
   });
 
   it("strips abortController from the record", () => {
@@ -125,6 +135,7 @@ describe("toSubagentRecord", () => {
       maxTurns: 30,
       wrapUpTurns: 2,
       maxDurationSeconds: 1800,
+      progress: { activity: "Running; no activity observed yet", invocationTurnCount: 1, maxTurns: 30 },
     });
     expect(result).not.toHaveProperty("result");
     expect(result).not.toHaveProperty("error");

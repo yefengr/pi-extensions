@@ -43,7 +43,7 @@ export function matchesTool(pattern: string, name: string): boolean {
 /** Exact declarations fail closed when extension loading did not provide them. */
 export function assertDeclaredTools(toolNames: readonly string[], actualNames: readonly string[]): void {
   const missing = toolNames.filter((pattern) => !actualNames.some((name) => matchesTool(pattern, name)));
-  if (missing.length) throw new Error(`Subagent tools are unavailable after extension binding: ${missing.join(", ")}`);
+  if (missing.length) throw new Error(`Subagent tools are unavailable after extension binding: ${missing.join(", ")}. Check exact tool names, supported aliases, disabled extensions and package exclusions.`);
   const unexpected = actualNames.filter((name) => !toolNames.some((pattern) => matchesTool(pattern, name)));
   if (unexpected.length) throw new Error(`Subagent callable tools exceed the declared allowlist: ${unexpected.join(", ")}`);
 }

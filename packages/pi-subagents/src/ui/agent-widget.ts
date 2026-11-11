@@ -6,6 +6,7 @@
  */
 
 import { AgentTypeRegistry } from "#src/config/agent-types";
+import { getSubagentProgress } from "#src/lifecycle/progress";
 import type { Subagent } from "#src/lifecycle/subagent";
 import type { SubagentManager, SubagentManagerObserver } from "#src/lifecycle/subagent-manager";
 import type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent-state";
@@ -167,7 +168,7 @@ export class AgentWidget implements SubagentManagerObserver {
    * background predicate exactly once at the source.
    */
   private listBackgroundAgents(): Subagent[] {
-    return this.manager.listAgents().filter(record => record.invocation?.runInBackground === true);
+    return this.manager.listAgents().filter(record => record.isBackground);
   }
 
   /** Project a live Subagent record onto a pure-data WidgetAgent snapshot. */
@@ -189,6 +190,7 @@ export class AgentWidget implements SubagentManagerObserver {
       activeTools: record.activeTools,
       responseText: record.responseText,
       contextPercent: record.getContextPercent(),
+      progress: getSubagentProgress(record),
     };
   }
 

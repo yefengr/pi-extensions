@@ -106,6 +106,129 @@ function seedNotificationScenario() {
   return { manager, record, notifications, sendMessage };
 }
 
+describe("SubagentManager — background resume admission", () => {
+  let manager: SubagentManager;
+  let release: (() => void) | undefined;
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(async () => { release?.(); await manager?.dispose(); vi.useRealTimers(); });
+
+  async function arrangeResumes() {
+    const firstSession = createSubagentSessionStub();
+    const secondSession = createSubagentSessionStub();
+    const resumed = vi.fn();
+    const completed = vi.fn();
+    const factory = vi.fn().mockResolvedValueOnce(toSubagentSession(firstSession)).mockResolvedValueOnce(toSubagentSession(secondSession));
+    const setup = createManager({ createSubagentSession: factory, getMaxConcurrent: () => 1,
+      observer: { onSubagentResumed: resumed, onSubagentCompleted: completed },
+      getRunConfig: () => ({ maxTurns: 30, wrapUpTurns: 2, maxDurationSeconds: 1800, maxQueueWaitSeconds: 1, abortGraceSeconds: 1 }),
+    });
+    manager = setup.manager;
+    const first = await spawnFg(manager, "first");
+    const second = await spawnFg(manager, "second");
+    const gate = Promise.withResolvers<void>();
+    release = gate.resolve;
+    void setup.limiter.schedule(() => gate.promise);
+    return { first, second, firstSession, secondSession, resumed, completed };
+  }
+  const invocation = { kind: "resume", source: "tool", toolCallId: "background-resume" } as const;
+  const background = { runInBackground: true };
+
+  it("reserves synchronously, runs FIFO after admission, detaches signal and retains identity/lifetime", async () => {
+    const { first, second, firstSession, secondSession, resumed, completed } = await arrangeResumes();
+    const order: string[] = [];
+    firstSession.resumeTurnLoop.mockImplementation(async (prompt: string) => {
+      order.push(prompt);
+      return { responseText: prompt, outcome: "completed", wrappedUp: false };
+    });
+    secondSession.resumeTurnLoop.mockImplementation(async (prompt: string) => {
+      order.push(prompt);
+      return { responseText: prompt, outcome: "completed", wrappedUp: false };
+    });
+    const signal = new AbortController();
+    const identity = { id: first.id, session: first.sessionId, file: first.outputFile, tools: first.toolUses };
+    const admitted = manager.resume(first.id, "one", invocation, { maxTurns: 4 }, signal.signal, background);
+    expect(first.phase).toBe("queued");
+    expect(first.invocationIndex).toBe(2);
+    expect(first.invocationToolUses).toBe(0);
+    expect(first.invocationTurnCount).toBe(0);
+    expect(first.invocationUsage).toEqual({ input: 0, output: 0, cacheWrite: 0 });
+    expect(first.lastProgressAt).toBeUndefined();
+    expect(first.maxTurns).toBe(4);
+    expect(firstSession.resumeTurnLoop).not.toHaveBeenCalled();
+    expect(await admitted).toBe(first);
+    await expect(manager.resume(first.id, "duplicate", invocation, undefined, undefined, background)).rejects.toThrow(/active/);
+    await manager.resume(second.id, "two", invocation, undefined, undefined, background);
+    signal.abort();
+    expect(first.phase).toBe("queued");
+    release!();
+    await manager.waitForAll();
+    expect(order).toEqual(["one", "two"]);
+    expect({ id: first.id, session: first.sessionId, file: first.outputFile, tools: first.toolUses }).toEqual(identity);
+    expect(first.isBackground).toBe(true);
+    expect(first.consumed).toBe(false);
+    expect(resumed).toHaveBeenCalledTimes(2);
+    expect(completed).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores both an old queued thunk and its timeout after cancellation and another resume", async () => {
+    const { first, firstSession, resumed } = await arrangeResumes();
+    await manager.resume(first.id, "old", invocation, undefined, undefined, background);
+    const old = first.promise;
+    expect(manager.abort(first.id)).toBe(true);
+    expect(first.outcome).toBe("cancelled");
+    expect(resumed).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(500);
+    await manager.resume(first.id, "new", invocation, undefined, undefined, background);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(first.phase).toBe("queued");
+    expect(first.invocationIndex).toBe(3);
+    expect(resumed).toHaveBeenCalledTimes(1);
+    release!();
+    await manager.waitForAll();
+    await old;
+    expect(firstSession.resumeTurnLoop).toHaveBeenCalledOnce();
+    expect(firstSession.resumeTurnLoop.mock.calls[0][0]).toBe("new");
+    expect(resumed).toHaveBeenCalledTimes(2);
+    expect(first.startedAt).toBe(Date.now());
+  });
+
+  it("does not run a cancelled old thunk even when its slot frees before its timeout", async () => {
+    const { first, firstSession, resumed } = await arrangeResumes();
+    await manager.resume(first.id, "old", invocation, undefined, undefined, background);
+    manager.abort(first.id);
+    await manager.resume(first.id, "new", invocation, undefined, undefined, background);
+    release!();
+    await manager.waitForAll();
+    expect(firstSession.resumeTurnLoop).toHaveBeenCalledOnce();
+    expect(firstSession.resumeTurnLoop.mock.calls[0][0]).toBe("new");
+    expect(resumed).toHaveBeenCalledTimes(2);
+  });
+
+  it("publishes queue timeout exactly once without prompting or consuming", async () => {
+    const { first, firstSession, resumed } = await arrangeResumes();
+    await manager.resume(first.id, "never", invocation, undefined, undefined, background);
+    await vi.advanceTimersByTimeAsync(1000);
+    await first.promise;
+    expect(first.outcome).toBe("queue_timeout");
+    expect(first.stoppedWhileQueued).toBe(true);
+    expect(first.consumed).toBe(false);
+    expect(resumed).toHaveBeenCalledTimes(1);
+    expect(firstSession.resumeTurnLoop).not.toHaveBeenCalled();
+    expect(manager.abort(first.id)).toBe(false);
+  });
+
+  it("refuses an already aborted signal without reserving or incrementing", async () => {
+    const { first, firstSession, resumed } = await arrangeResumes();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(manager.resume(first.id, "never", invocation, undefined, controller.signal, background)).rejects.toThrow();
+    expect(first.invocationIndex).toBe(1);
+    expect(first.outcome).toBe("completed");
+    expect(resumed).not.toHaveBeenCalled();
+    expect(firstSession.resumeTurnLoop).not.toHaveBeenCalled();
+  });
+});
+
 describe("SubagentManager — Bug 1 race condition (consumed state vs onComplete)", () => {
   let manager: SubagentManager;
 
