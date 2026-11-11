@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.1
+
+- Remove inherited Task Status and browser guidance when the corresponding tools are unavailable in the child, while preserving user-authored prompt sections and guidelines.
+- Synchronize child tool guidance after final tool policy is applied and across tool changes or reloads, including browser tools exposed through codemode or deferred calls.
+- Verify Task Status package exclusion and prompt inheritance with the real SDK, including Windows paths containing Chinese characters, spaces, and `#`.
+
 ## 0.4.0
 
 - Allow explicit background resume for live and safely reopened sessions through the existing queue, rejecting duplicate active resumes and isolating stale queue callbacks by invocation.

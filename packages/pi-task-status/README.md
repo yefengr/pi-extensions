@@ -16,7 +16,7 @@
 
 排除值必须与 `settings.json` 的 `packages` 来源字符串完全一致，包括版本；已有其他排除项时追加到原列表。配置说明见 [Subagents 包排除规则](../pi-subagents/docs/configuration.md#excluding-package-extensions-from-children)。
 
-包排除与提示词继承分别处理：子代理没有 `update_task_status` 时，配套的 Subagents 继承逻辑会移除父会话的 `task_status` 区块；工具描述与工具指导语由 SDK 按子会话工具集生成。仅移除提示词不会阻止扩展加载，因此仍需配置包排除。该兼容调整与 Task Status 一起位于当前工作区，使用前需安装包含调整的 Subagents 发布版；单独使用已发布的 Subagents 0.4.0 不会清理继承区块。
+包排除与提示词继承分别处理：子代理没有 `update_task_status` 时，配套的 Subagents 继承逻辑会移除父会话的 `task_status` 区块；工具描述与工具指导语由 SDK 按子会话工具集生成。仅移除提示词不会阻止扩展加载，因此仍需配置包排除。该兼容调整包含在 Subagents 0.4.1 中；发布后使用 Task Status 时需同时安装 Subagents >= 0.4.1，0.4.0 不会清理继承区块。
 
 ## 功能
 
