@@ -4,6 +4,7 @@ import {
   TASK_TRANSITIONS,
   type TaskStatus,
   type TaskStatusInput,
+  type TaskStatusUpdateInput,
 } from "./types.ts";
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -28,7 +29,7 @@ export interface NormalizedStatusInput extends TaskStatusInput {
   phase: string;
 }
 
-export function normalizeStatusInput(input: TaskStatusInput): NormalizedStatusInput {
+export function normalizeStatusInput(input: TaskStatusUpdateInput): NormalizedStatusInput {
   if (!TASK_TRANSITIONS.includes(input.taskTransition)) {
     throw new StatusInputError("taskTransition 必须是 continue 或 new");
   }
@@ -36,6 +37,12 @@ export function normalizeStatusInput(input: TaskStatusInput): NormalizedStatusIn
     throw new StatusInputError("status 不是受支持的会话状态");
   }
 
+  if (typeof input.taskName !== "string") {
+    throw new StatusInputError("taskName 必须是字符串；创建任务时必须提供");
+  }
+  if (typeof input.phase !== "string") {
+    throw new StatusInputError("phase 必须是字符串；创建任务时必须提供");
+  }
   const taskName = truncateText(cleanText(input.taskName), TASK_MAX_LENGTH);
   const phase = truncateText(cleanText(input.phase), PHASE_MAX_LENGTH);
   if (!taskName) throw new StatusInputError("taskName 不能为空");
@@ -66,14 +73,15 @@ export function formatTaskStatus(
   const taskName = truncateText(cleanText(input.taskName), TASK_MAX_LENGTH);
   const phase = truncateText(cleanText(input.phase), PHASE_MAX_LENGTH);
   const status = STATUS_LABELS[input.status];
-  const suffix = ` · ${status}（${phase}，${input.progressPercent}%）`;
+  const progress = input.status === "completed" ? "100%" : `估计 ${input.progressPercent}%`;
+  const suffix = ` · ${status}（${phase}，${progress}）`;
   const taskBudget = Math.max(1, MAX_STATUS_LENGTH - codePointLength(suffix));
   const boundedTask = truncateText(taskName, taskBudget);
   return `${boundedTask}${suffix}`;
 }
 
 export function formatFallbackStatus(): string {
-  return "正在识别任务";
+  return "尚无任务";
 }
 
 export function cleanText(value: string): string {

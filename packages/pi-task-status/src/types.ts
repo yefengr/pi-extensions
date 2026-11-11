@@ -11,6 +11,7 @@ export const TASK_STATUSES = [
 ] as const;
 
 export const TASK_TRANSITIONS = ["continue", "new"] as const;
+export const TASK_PROGRESS_VALUES = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] as const;
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type TaskTransition = (typeof TASK_TRANSITIONS)[number];
@@ -22,6 +23,9 @@ export interface TaskStatusInput {
   phase: string;
   progressPercent: number;
 }
+
+export type TaskStatusUpdateInput = Omit<TaskStatusInput, "taskName" | "phase"> &
+  Partial<Pick<TaskStatusInput, "taskName" | "phase">>;
 
 export interface TaskStatusState {
   version: typeof TASK_STATUS_STATE_VERSION;

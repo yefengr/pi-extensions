@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyStatusUpdate, countUserMessages, findLatestState } from "../src/state.ts";
-import { DEFAULT_MAX_UPDATES, type TaskStatus } from "../src/types.ts";
+import { DEFAULT_MAX_UPDATES, type TaskStatus, type TaskStatusUpdateInput } from "../src/types.ts";
 
 const baseInput = {
   taskTransition: "new" as const,
@@ -33,6 +33,56 @@ test("initial continue creates an extension-owned task id", () => {
   assert.equal(result.createdTask, true);
   assert.equal(result.state.taskId, "task-1");
   assert.equal(result.state.updatesUsed, 1);
+});
+
+test("continue inherits only omitted name and phase, preserving task identity", () => {
+  const initial = applyStatusUpdate(baseInput, undefined, options(1)).state;
+  const renamed = applyStatusUpdate({
+    taskTransition: "continue", taskName: "修正名称", status: "in_progress", progressPercent: 20,
+  }, initial, options(1)).state;
+  assert.equal(renamed.taskName, "修正名称");
+  assert.equal(renamed.phase, "设计");
+  const rephased = applyStatusUpdate({
+    taskTransition: "continue", phase: "实现", status: "in_progress", progressPercent: 40,
+  }, renamed, options(1)).state;
+  assert.equal(rephased.taskName, "修正名称");
+  assert.equal(rephased.phase, "实现");
+  assert.equal(rephased.taskId, initial.taskId);
+  assert.equal(rephased.updatesUsed, 3);
+});
+
+for (const taskTransition of ["new", "continue"] as const) {
+  test(`initial ${taskTransition} requires both name and phase`, () => {
+    for (const fields of [{}, { taskName: "新任务" }, { phase: "分析" }]) {
+      assert.throws(() => applyStatusUpdate({
+        taskTransition, status: "in_progress", progressPercent: 0, ...fields,
+      }, undefined, options(1)), /taskName|phase/);
+    }
+  });
+}
+
+test("new never inherits missing fields from an existing task", () => {
+  const current = applyStatusUpdate(baseInput, undefined, options(1)).state;
+  for (const fields of [{}, { taskName: "新任务" }, { phase: "分析" }]) {
+    assert.throws(() => applyStatusUpdate({
+      taskTransition: "new", status: "in_progress", progressPercent: 0, ...fields,
+    }, current, options(2)), /taskName|phase/);
+  }
+  assert.equal(current.updatesUsed, 1);
+  assert.equal(current.taskName, baseInput.taskName);
+});
+
+test("continue rejects explicit blank, null and non-string fields without inheriting", () => {
+  const current = applyStatusUpdate(baseInput, undefined, options(1)).state;
+  for (const field of ["taskName", "phase"] as const) {
+    for (const value of ["", " \n\t", null, 123, false, {}]) {
+      const input = {
+        taskTransition: "continue", status: "in_progress", progressPercent: 20, [field]: value,
+      } as unknown as TaskStatusUpdateInput;
+      assert.throws(() => applyStatusUpdate(input, current, options(1)), new RegExp(field));
+    }
+  }
+  assert.equal(current.updatesUsed, 1);
 });
 
 test("same task continues without resetting update count", () => {
@@ -146,7 +196,7 @@ for (const limit of [1, 2]) {
     ];
     for (const [index, status] of statuses.entries()) {
       const result = applyStatusUpdate({
-        ...baseInput, taskTransition: "continue", status,
+        taskTransition: "continue", status,
         progressPercent: status === "completed" ? 100 : 20,
       }, state, opts);
       assert.equal(result.changed, true);
@@ -169,7 +219,9 @@ for (const status of ["in_progress", "waiting_for_user", "blocked", "completed"]
     const input = { ...baseInput, taskTransition: "continue" as const, status, progressPercent: status === "completed" ? 100 : 10 };
     const opts = options(1, 1);
     const state = applyStatusUpdate(input, undefined, opts).state;
-    const unchanged = applyStatusUpdate(input, state, opts);
+    const unchanged = applyStatusUpdate({
+      taskTransition: "continue", status, progressPercent: input.progressPercent,
+    }, state, opts);
     assert.equal(unchanged.changed, false);
     assert.equal(unchanged.state, state);
     assert.equal(unchanged.state.updatesUsed, 1);

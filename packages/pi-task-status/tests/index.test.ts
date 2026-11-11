@@ -130,13 +130,13 @@ function assertNoNameAccess(host: Host) {
 test("session_start 只恢复，接受工具更新才首次命名并独立保存归属", async () => {
   const host = createExtensionHost();
   await host.emit("session_start", { reason: "startup" });
-  assert.equal(readStatusText(host), dimStatus("正在识别任务"));
+  assert.equal(readStatusText(host), dimStatus("尚无任务"));
   assertNoNameAccess(host);
   const result = await host.execute({ taskTransition: "new" });
   assert.equal(result.isError, undefined);
   assert.equal((result.details as { maxUpdatesPerTask: number }).maxUpdatesPerTask, 20);
   assert.match(result.content[0].text!, /1\/20 次更新/);
-  assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，10%）"));
+  assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，估计 10%）"));
   assert.equal(host.entries.length, 2);
   const state = host.entries[0].data as Record<string, unknown>;
   assert.equal(host.entries[0].customType, "task-status-state");
@@ -211,7 +211,7 @@ test("恢复与 reload 只恢复任务；全会话自动归属跨 branch 延续"
   const restored = createExtensionHost(persisted);
   await restored.emit("session_start", { reason: "resume" });
   assertNoNameAccess(restored);
-  assert.equal(readStatusText(restored), dimStatus("修复扩展 · 进行中（实现，10%）"));
+  assert.equal(readStatusText(restored), dimStatus("修复扩展 · 进行中（实现，估计 10%）"));
   extensionFactory(restored.api);
   await restored.emit("session_start", { reason: "reload" });
   assertNoNameAccess(restored);
@@ -226,7 +226,7 @@ test("恢复与 reload 只恢复任务；全会话自动归属跨 branch 延续"
 test("review branch 停用工具且不读写名称，切回后恢复", async () => {
   const host = createExtensionHost([stateEntry(restoredState)]);
   await host.emit("session_start");
-  assert.equal(readStatusText(host), dimStatus("保留任务 · 进行中（验证，20%）"));
+  assert.equal(readStatusText(host), dimStatus("保留任务 · 进行中（验证，估计 20%）"));
   host.session.setBranch([stateEntry(restoredState), reviewEntry()]);
   await host.emit("session_tree");
   assert.equal(readStatusText(host), undefined);
@@ -237,7 +237,7 @@ test("review branch 停用工具且不读写名称，切回后恢复", async () 
   host.session.setBranch([stateEntry(restoredState)]);
   await host.emit("session_tree");
   assert.equal(host.activeTools().includes("update_task_status"), true);
-  assert.equal(readStatusText(host), dimStatus("保留任务 · 进行中（验证，20%）"));
+  assert.equal(readStatusText(host), dimStatus("保留任务 · 进行中（验证，估计 20%）"));
   assertNoNameAccess(host);
 });
 
@@ -285,7 +285,7 @@ test("首次状态保存失败不刷新或命名，重试仍保存且只计一�
   }, { changed: true, createdTask: true, updatesUsed: 1 });
   assert.equal(host.entries.filter((entry) => entry.customType === "task-status-state").length, 1);
   assert.deepEqual(host.nameWrites, ["修复扩展"]);
-  assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，10%）"));
+  assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，估计 10%）"));
   const repeated = await host.execute();
   assert.equal((repeated.details as { changed: boolean }).changed, false);
   assert.equal((repeated.details as { updatesUsed: number }).updatesUsed, 1);
@@ -321,7 +321,7 @@ test("已有任务状态保存失败保留原任务、计数、展示和名称�
   assert.equal((states[1].data as typeof restoredState).taskId, savedState.taskId);
   assert.equal((states[1].data as typeof restoredState).updatesUsed, 2);
   assert.deepEqual(host.nameWrites, ["修复扩展", "保存后再改名"]);
-  assert.equal(readStatusText(host), dimStatus("保存后再改名 · 进行中（实现，20%）"));
+  assert.equal(readStatusText(host), dimStatus("保存后再改名 · 进行中（实现，估计 20%）"));
 });
 
 for (const failure of ["get", "set", "marker", "missing-info", "race"] as const) {
@@ -339,7 +339,7 @@ for (const failure of ["get", "set", "marker", "missing-info", "race"] as const)
     assert.ok((result.details as { sessionNameWarning?: string }).sessionNameWarning);
     assert.equal(host.entries[0].customType, "task-status-state");
     assert.equal((host.entries[0].data as typeof restoredState).updatesUsed, 1);
-    assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，10%）"));
+    assert.equal(readStatusText(host), dimStatus("修复扩展 · 进行中（实现，估计 10%）"));
     assert.equal(host.entries.some((entry) => entry.customType === SESSION_NAME_OWNER_TYPE), false);
     host.failAt(undefined);
     const next = await host.execute({ taskName: "继续任务", progressPercent: 20 });
@@ -350,6 +350,58 @@ for (const failure of ["get", "set", "marker", "missing-info", "race"] as const)
     if (failure === "marker" || failure === "race") assert.deepEqual(host.nameWrites, ["修复扩展"]);
   });
 }
+
+test("continue 省略字段沿用恢复状态，完成与重新打开不重命名", async () => {
+  const host = createExtensionHost([stateEntry(restoredState)]);
+  await host.emit("session_start");
+  const complete = await host.execute({ taskName: undefined, phase: undefined, status: "completed", progressPercent: 100 });
+  assert.equal(complete.isError, undefined);
+  assert.equal(readStatusText(host), dimStatus("保留任务 · 已完成（验证，100%）"));
+  const saved = host.entries[0].data as typeof restoredState;
+  assert.equal(saved.taskId, restoredState.taskId);
+  assert.equal(saved.taskName, restoredState.taskName);
+  assert.equal(saved.phase, restoredState.phase);
+  assert.equal(saved.updatesUsed, 3);
+  assert.deepEqual(host.nameWrites, ["保留任务"]);
+  const unchanged = await host.execute({ taskName: undefined, phase: undefined, status: "completed", progressPercent: 100 });
+  assert.equal((unchanged.details as { changed: boolean }).changed, false);
+  const resumed = await host.execute({ taskName: undefined, phase: undefined, progressPercent: 40 });
+  assert.equal(resumed.isError, undefined);
+  assert.equal((resumed.details as { updatesUsed: number }).updatesUsed, 4);
+  assert.deepEqual(host.nameWrites, ["保留任务"]);
+  assert.equal(readStatusText(host), dimStatus("保留任务 · 进行中（验证，估计 40%）"));
+});
+
+test("缺失创建字段或显式非法字段不保存、不命名或覆盖状态", async () => {
+  const fresh = createExtensionHost();
+  const missing = await fresh.execute({ taskName: undefined, phase: undefined });
+  assert.equal(missing.isError, true);
+  assert.match(missing.content[0].text!, /taskName.*创建任务时必须提供/);
+  assert.equal(fresh.entries.length, 0);
+  assertNoNameAccess(fresh);
+
+  const host = createExtensionHost([stateEntry(restoredState)]);
+  await host.emit("session_start");
+  const calls = host.session.statusCalls.length;
+  for (const fields of [{ taskName: null }, { phase: " " }, { taskTransition: "new", taskName: undefined }]) {
+    assert.equal((await host.execute(fields)).isError, true);
+  }
+  assert.equal(host.entries.length, 0);
+  assert.equal(host.session.statusCalls.length, calls);
+  assertNoNameAccess(host);
+});
+
+test("切换到无任务分支清除旧任务展示，恢复后重新显示估计进度", async () => {
+  const host = createExtensionHost([stateEntry(restoredState)]);
+  await host.emit("session_start");
+  host.session.setBranch([]);
+  await host.emit("session_tree");
+  assert.equal(readStatusText(host), dimStatus("尚无任务"));
+  host.session.setBranch([stateEntry(restoredState)]);
+  await host.emit("session_tree");
+  assert.equal(readStatusText(host), dimStatus("保留任务 · 进行中（验证，估计 20%）"));
+  assertNoNameAccess(host);
+});
 
 test("session_shutdown 清除 footer，不访问会话名称", async () => {
   const host = createExtensionHost();

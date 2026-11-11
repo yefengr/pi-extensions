@@ -3,7 +3,7 @@ import {
   TASK_STATUS_STATE_TYPE,
   TASK_STATUS_STATE_VERSION,
   type TaskStatus,
-  type TaskStatusInput,
+  type TaskStatusUpdateInput,
   type TaskStatusState,
 } from "./types.ts";
 import { normalizeStatusInput } from "./status.ts";
@@ -60,11 +60,16 @@ export function countUserMessages(entries: readonly SessionEntryLike[]): number 
 }
 
 export function applyStatusUpdate(
-  input: TaskStatusInput,
+  input: TaskStatusUpdateInput,
   current: TaskStatusState | undefined,
   options: ApplyStatusUpdateOptions,
 ): ApplyStatusUpdateResult {
-  const normalized = normalizeStatusInput(input);
+  const inherited = input.taskTransition === "continue" ? current : undefined;
+  const normalized = normalizeStatusInput({
+    ...input,
+    taskName: input.taskName === undefined ? inherited?.taskName : input.taskName,
+    phase: input.phase === undefined ? inherited?.phase : input.phase,
+  });
   const startsNewTask = !current || normalized.taskTransition === "new";
   if (
     current &&

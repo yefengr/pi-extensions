@@ -4,7 +4,7 @@
 
 ## 提示词与子代理
 
-扩展通过命名的 `systemPromptOptions.sections.task_status` 注入任务维护规则，不返回完整 `systemPrompt`。规则随每轮可用工具更新；未启用 `update_task_status` 或进入效率复盘时移除该区块。
+扩展通过命名的 `systemPromptOptions.sections.task_status` 集中注入任务维护规则，工具元数据只说明用途和参数，不重复注入更新时机策略。扩展不返回完整 `systemPrompt`；规则随每轮可用工具更新，未启用 `update_task_status` 或进入效率复盘时移除该区块。
 
 总体任务状态由主代理维护。发布后，在全局或项目的 `subagents.json` 中使用现有 `excludedExtensionPackages` 排除此包，避免子代理加载扩展、恢复任务状态或执行会话命名。例如，Pi 的 `settings.json` 中安装来源为 `npm:@yefengr/pi-task-status@0.1.0` 时，对应配置为：
 
@@ -23,6 +23,25 @@
 由模型通过 `update_task_status` 维护当前任务的名称、状态、阶段和整体进度，并把同一份信息使用与 Pi footer 一致的 `dim` 主题色展示在状态栏（key 为 `task-status`）。扩展在接受任务状态更新后，使用同一份规范化任务名称自动命名未被手动接管的会话。项目目录由 Pi 自身的 footer 和终端标题展示，Git 分支由 footer 展示。工具正常结果默认折叠，展开提示与结果位于同一行，使用 `Ctrl+O` 可展开完整更新信息。
 
 扩展把每次有效更新作为 `task-status-state` custom entry 写入当前会话 branch，写入成功后再更新扩展内存状态、状态栏和会话名称；写入失败可重试，不消耗扩展的更新计数。恢复会话、切换 branch 或 fork 时，从活动 branch 中最后一个有效状态恢复。
+
+尚无有效任务时，状态栏显示“尚无任务”。进行中、等待用户或阻塞时，进度表示模型对整个任务的粗略估计，例如“修复扩展 · 进行中（实现，估计 40%）”；完成后显示“已完成（交付，100%）”。这些文案不改变持久化的进度数值。
+
+## 工具参数
+
+`taskTransition`、`status` 和 `progressPercent` 每次必填。首次创建任务时，无论使用 `new` 还是 `continue`，都必须提供 `taskName` 和 `phase`；已有任务使用 `continue` 时，可以省略未变化的名称和阶段，扩展会沿用当前任务的值。例如：
+
+```json
+{
+  "taskTransition": "continue",
+  "status": "completed",
+  "phase": "交付",
+  "progressPercent": 100
+}
+```
+
+上例沿用已有任务名称，将阶段改为“交付”。`continue` 也可以显式修改名称；`new` 必须重新提供名称和阶段，不继承旧任务字段。名称和阶段须为非空字符串，显式空白会被拒绝；可选字段的 `null` 按 SDK 参数归一化规则视为省略。原有每次提供完整参数的调用仍然有效。
+
+参数 schema 列举允许的进度值 `0, 10, …, 100`，运行时进一步校验：非 `completed` 状态只能使用 `0–90`，`completed` 必须为 `100`。省略字段后的有效内容若没有变化，不增加更新计数。
 
 ## 更新时机
 

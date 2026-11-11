@@ -24,6 +24,7 @@ import {
 } from "./state.ts";
 import {
   DEFAULT_MAX_UPDATES,
+  TASK_PROGRESS_VALUES,
   TASK_STATUSES,
   TASK_TRANSITIONS,
   TASK_STATUS_STATE_TYPE,
@@ -31,7 +32,6 @@ import {
 } from "./types.ts";
 import {
   TASK_STATUS_INSTRUCTIONS,
-  TASK_STATUS_PROMPT_GUIDELINES,
   TASK_STATUS_SECTION,
   TOOL_NAME,
 } from "./instructions.ts";
@@ -40,11 +40,23 @@ const STATUS_KEY = "task-status";
 
 const updateTaskStatusSchema = Type.Object(
   {
-    taskTransition: Type.Enum(TASK_TRANSITIONS),
-    taskName: Type.String({ description: "简洁、脱敏的主要任务名称" }),
-    status: Type.Enum(TASK_STATUSES),
-    phase: Type.String({ description: "当前工作阶段，例如分析、实现、验证" }),
-    progressPercent: Type.Integer({ minimum: 0, maximum: 100 }),
+    taskTransition: Type.Enum(TASK_TRANSITIONS, {
+      description: "同一交付目标使用 continue；主要交付目标变化后使用 new",
+    }),
+    taskName: Type.Optional(Type.String({
+      minLength: 1,
+      description: "简洁、脱敏的主要任务名称；创建任务时必填，continue 已有任务时省略则沿用",
+    })),
+    status: Type.Enum(TASK_STATUSES, {
+      description: "当前任务状态；completed 时 progressPercent 必须为 100",
+    }),
+    phase: Type.Optional(Type.String({
+      minLength: 1,
+      description: "当前工作阶段；创建任务时必填，continue 已有任务时省略则沿用",
+    })),
+    progressPercent: Type.Enum(TASK_PROGRESS_VALUES, {
+      description: "整体进度估计：非 completed 为 0–90 的 10% 粒度；completed 必须为 100",
+    }),
   },
   { additionalProperties: false },
 );
@@ -72,9 +84,8 @@ export default function (pi: ExtensionAPI): void {
     name: TOOL_NAME,
     label: "Task Status",
     description:
-      "由模型维护当前任务的名称、状态、阶段和整体进度。任务 UUID 由扩展生成，只在任务里程碑变化时调用。",
-    promptSnippet: "维护当前任务状态和进度",
-    promptGuidelines: TASK_STATUS_PROMPT_GUIDELINES,
+      "维护当前任务的名称、状态、阶段和整体进度估计；任务 ID 由扩展生成。",
+    promptSnippet: "维护当前任务状态和进度估计",
     parameters: updateTaskStatusSchema,
     executionMode: "sequential",
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
