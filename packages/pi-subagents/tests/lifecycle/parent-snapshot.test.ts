@@ -23,6 +23,15 @@ function makeCtx(overrides: Record<string, unknown> = {}) {
 }
 
 describe("buildParentSnapshot", () => {
+  it("preserves SDK off thinking, trust, and immutable structured options", () => {
+    const options = { cwd: "/test/project", sections: { operator: "original" } };
+    const snapshot = buildParentSnapshot(makeCtx({ thinkingLevel: "off", isProjectTrusted: () => false }), false, options);
+    expect(snapshot.thinkingLevel).toBe("off");
+    expect(snapshot.projectTrusted).toBe(false);
+    options.sections.operator = "mutated";
+    expect(snapshot.promptOptions?.sections?.operator).toBe("original");
+  });
+
   it("captures cwd from ctx", () => {
     const snapshot = buildParentSnapshot(makeCtx({ cwd: "/custom/path" }));
     expect(snapshot.cwd).toBe("/custom/path");

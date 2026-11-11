@@ -13,7 +13,7 @@ import { extractText } from "#src/session/context";
 /**
  * Get the subagent's conversation messages as formatted text.
  */
-export function getAgentConversation(session: AgentSession): string {
+export function getAgentConversation(session: { messages: Readonly<AgentSession["messages"]> }): string {
   const parts: string[] = [];
 
   for (const msg of session.messages) {

@@ -7,6 +7,8 @@
 
 import type { Model } from "@earendil-works/pi-ai";
 import { AgentTypeRegistry } from "#src/config/agent-types";
+import { resolveAgentInvocationConfig } from "#src/config/invocation-config";
+import { clampWrapUpTurns } from "#src/config/resource-limits";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import type { WorkspaceProvider } from "#src/lifecycle/workspace";
 import type { SpawnOptions, SubagentRecord, SubagentsService } from "#src/service/service";
@@ -42,7 +44,7 @@ export class SubagentsServiceAdapter implements SubagentsService {
     private readonly manager: SubagentManagerLike,
     private readonly resolveModel: (input: string, registry: ModelRegistry) => Model<any> | string,
     private readonly runtime: ServiceRuntimeLike,
-    private readonly registry: Pick<AgentTypeRegistry, "reload" | "resolveSpawnType"> = DEFAULT_REGISTRY,
+    private readonly registry: Pick<AgentTypeRegistry, "reload" | "resolveSpawnType" | "resolveAgentConfig"> = DEFAULT_REGISTRY,
   ) {}
 
   spawn(type: string, prompt: string, options?: SpawnOptions): string {
@@ -52,19 +54,33 @@ export class SubagentsServiceAdapter implements SubagentsService {
 
     this.registry.reload();
     const agentType = this.registry.resolveSpawnType(type);
-    const model = this.resolveModelOption(options?.model);
+    const resolved = resolveAgentInvocationConfig(this.registry.resolveAgentConfig(agentType), {
+      model: options?.model,
+      thinking: options?.thinkingLevel,
+      max_turns: options?.maxTurns,
+      wrap_up_turns: options?.wrapUpTurns,
+      max_duration_seconds: options?.maxDurationSeconds,
+      inherit_context: options?.inheritContext,
+    });
+    const model = this.resolveModelOption(resolved.modelInput);
     const description = options?.description ?? prompt.slice(0, 80);
     const isBackground = !(options?.foreground ?? false);
-
-    const snapshot = this.runtime.buildSnapshot(options?.inheritContext ?? false);
+    const ctx = this.runtime.currentCtx;
+    const snapshot = this.runtime.buildSnapshot(resolved.inheritContext);
     return this.manager.spawn(snapshot, agentType, prompt, {
       description,
       model,
-      maxTurns: options?.maxTurns,
-      wrapUpTurns: options?.wrapUpTurns,
-      maxDurationSeconds: options?.maxDurationSeconds,
-      thinkingLevel: options?.thinkingLevel,
-      inheritContext: options?.inheritContext,
+      maxTurns: resolved.maxTurns,
+      wrapUpTurns: resolved.wrapUpTurns !== undefined && resolved.maxTurns !== undefined
+        ? clampWrapUpTurns(resolved.wrapUpTurns, resolved.maxTurns)
+        : resolved.wrapUpTurns,
+      maxDurationSeconds: resolved.maxDurationSeconds,
+      thinkingLevel: resolved.thinking ?? snapshot.thinkingLevel,
+      inheritContext: resolved.inheritContext,
+      parentSession: {
+        parentSessionFile: ctx.sessionManager.getSessionFile(),
+        parentSessionId: ctx.sessionManager.getSessionId(),
+      },
       bypassQueue: options?.bypassQueue,
       isBackground,
       lifecycleInvocation: { kind: "fresh", source: "service" },
@@ -107,7 +123,7 @@ export class SubagentsServiceAdapter implements SubagentsService {
 
   /** Resolve an optional model-string override against the current session's registry. */
   private resolveModelOption(modelInput: string | undefined): Model<any> | undefined {
-    if (!modelInput) return undefined;
+    if (modelInput === undefined) return undefined;
     const registry = this.runtime.currentCtx?.modelRegistry;
     if (!registry) {
       throw new Error("No model registry available.");

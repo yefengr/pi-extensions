@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import type { Model } from "@earendil-works/pi-ai";
 import { debugLog } from "#src/debug";
+import { type ColdResumeIO, recoverSubagent } from "#src/lifecycle/cold-resume";
 import type { ConcurrencyLimiter } from "#src/lifecycle/concurrency-limiter";
 import type { CreateSubagentSessionParams } from "#src/lifecycle/create-subagent-session";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
@@ -58,6 +59,7 @@ export interface SubagentManagerObserver {
 }
 
 export interface SubagentManagerOptions {
+  coldResume?: ColdResumeIO;
   /** Assembly factory that produces a born-complete SubagentSession per spawn. */
   createSubagentSession: (params: CreateSubagentSessionParams) => Promise<SubagentSession>;
   /** Concurrency limiter — schedules background run thunks FIFO against the limit. */
@@ -98,6 +100,8 @@ export interface AgentSpawnConfig {
 }
 
 export class SubagentManager {
+  private readonly coldResume?: ColdResumeIO;
+  private shuttingDown = false;
   private agents = new Map<string, Subagent>();
   private sweepInterval: ReturnType<typeof setInterval>;
   private readonly observer?: SubagentManagerObserver;
@@ -114,6 +118,7 @@ export class SubagentManager {
   }
 
   constructor(options: SubagentManagerOptions) {
+    this.coldResume = options.coldResume;
     this.createSubagentSession = options.createSubagentSession;
     this.limiter = options.limiter;
     this.baseCwd = options.baseCwd;
@@ -175,6 +180,7 @@ export class SubagentManager {
     prompt: string,
     options: AgentSpawnConfig,
   ): string {
+    this.assertOpen();
     const id = randomUUID().slice(0, 17);
     const record = new Subagent({
       id,
@@ -253,10 +259,33 @@ export class SubagentManager {
     limits?: InvocationLimitOverrides,
     signal?: AbortSignal,
   ): Promise<Subagent | undefined> {
+    this.assertOpen();
     const agent = this.agents.get(id);
     if (!agent?.isSessionReady()) return undefined;
     await agent.resume(prompt, invocation, limits, signal);
     return agent;
+  }
+
+  getSavedRecord(id: string): { type: string } | undefined {
+    return this.coldResume?.store.get(id)?.latest;
+  }
+
+  async restore(id: string, snapshot: ParentSnapshot, config: AgentSpawnConfig): Promise<Subagent> {
+    this.assertOpen();
+    if (!this.coldResume) throw new Error("Cold resume is unavailable");
+    const existing = this.agents.get(id);
+    if (existing && !existing.sessionReleased) throw new Error("Existing child session is active or still closing");
+    const recovered = await recoverSubagent(id, snapshot, config, {
+      io: this.coldResume, createSession: this.createSubagentSession,
+      observer: this.buildObserver(config), getRunConfig: this.getRunConfig,
+    });
+    if (this.shuttingDown) {
+      const marker = recovered.subagentSession?.leasePath;
+      await recovered.disposeSession();
+      throw new Error(`Subagent manager shut down during recovery initialization${marker ? `; ownership retained at ${marker}` : ""}`);
+    }
+    this.agents.set(id, recovered);
+    return recovered;
   }
 
   getRecord(id: string): Subagent | undefined {
@@ -375,6 +404,17 @@ export class SubagentManager {
       .filter((p): p is Promise<void> => p != null);
   }
 
+  private assertOpen(): void {
+    if (this.shuttingDown) throw new Error("Subagent manager is shutting down");
+  }
+
+  /** Await invocation waiters after abort; their existing abort-grace controls stay bounded. */
+  async settleInvocations(): Promise<void> {
+    this.shuttingDown = true;
+    const promises = [...this.agents.values()].map((record) => record.promise).filter((promise) => promise != null);
+    await Promise.allSettled(promises);
+  }
+
   /**
    * Tear down every record, resolving once each child's extensions have shut
    * down. The registry is emptied before the teardowns are awaited, so nothing
@@ -382,6 +422,7 @@ export class SubagentManager {
    * abandoning its siblings.
    */
   async dispose(): Promise<void> {
+    this.shuttingDown = true;
     clearInterval(this.sweepInterval);
     // Drop pending thunks
     this.limiter.clear();

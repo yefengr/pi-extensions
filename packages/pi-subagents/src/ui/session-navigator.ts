@@ -102,6 +102,7 @@ export interface SessionNavigatorParams {
   ui: SessionNavigatorUI;
   outputPad?: number;
   agents: readonly NavigableSubagent[];
+  persisted?: Parameters<typeof listNavigableAgents>[2];
   registry: AgentConfigLookup;
   /** Working directory for tool-call rendering (relative path display). */
   cwd: string;
@@ -130,8 +131,8 @@ export interface TranscriptOverlayOptions {
  * manager, so it stays a reactive consumer with no inbound call into the core.
  */
 export class SessionNavigatorHandler {
-  async handle({ ui, agents, registry, cwd, readFile, outputPad = 1 }: SessionNavigatorParams): Promise<void> {
-    const entries = listNavigableAgents(agents, registry);
+  async handle({ ui, agents, persisted, registry, cwd, readFile, outputPad = 1 }: SessionNavigatorParams): Promise<void> {
+    const entries = listNavigableAgents(agents, registry, persisted);
     if (entries.length === 0) {
       ui.notify("暂无可查看的子代理会话。", "info");
       return;

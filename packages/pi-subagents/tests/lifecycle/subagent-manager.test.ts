@@ -378,7 +378,7 @@ describe("SubagentManager — consumption-aware session release sweep", () => {
     (manager as any).sweep();
     const swept = manager.getRecord(id)!;
     expect(swept).toBeDefined();
-    expect(swept.isSessionReady()).toBe(false);
+    await vi.waitFor(() => expect(swept.isSessionReady()).toBe(false));
     expect(swept.outputFile).toBe("/tasks/agent.jsonl");
   });
 
@@ -393,7 +393,7 @@ describe("SubagentManager — consumption-aware session release sweep", () => {
 
     nowSpy.mockReturnValue(completedAt + 721 * 60_000); // past the 12h cap
     (manager as any).sweep();
-    expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
+    await vi.waitFor(() => expect(manager.getRecord(id)!.isSessionReady()).toBe(false));
   });
 
   it("never releases a running or queued agent's session", async () => {
@@ -424,7 +424,7 @@ describe("SubagentManager — consumption-aware session release sweep", () => {
     record.markConsumed(completedAt);
     vi.spyOn(Date, "now").mockReturnValue(completedAt + 2 * 60_000); // 2 min > 1 min window
     (manager as any).sweep();
-    expect(manager.getRecord(id)!.isSessionReady()).toBe(false);
+    await vi.waitFor(() => expect(manager.getRecord(id)!.isSessionReady()).toBe(false));
   });
 
   it("leaves records in place after release (getRecord still resolves them)", async () => {
@@ -1087,6 +1087,33 @@ describe("SubagentManager — toolCallId notification wiring", () => {
 
     expect(record.toolCallId).toBeUndefined();
     manager.abort(id);
+  });
+});
+
+describe("SubagentManager — bounded shutdown settling", () => {
+  it("waits through the abort grace, blocks new invocations, and leaves unconfirmed work leased", async () => {
+    vi.useFakeTimers();
+    const { factory, stub } = createSessionFactory();
+    stub.runTurnLoop.mockImplementation(() => new Promise<never>(() => {}));
+    const { manager } = createManager({ createSubagentSession: factory });
+    try {
+      const id = spawnBg(manager);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stub.runTurnLoop).toHaveBeenCalledOnce();
+      manager.abortAll();
+      let settled = false;
+      const pending = manager.settleInvocations().then(() => { settled = true; });
+      expect(() => spawnBg(manager, "new work")).toThrow("shutting down");
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await pending;
+      expect(manager.getRecord(id)!.sessionReleased).toBe(false);
+      expect(stub.dispose).not.toHaveBeenCalled();
+    } finally {
+      await manager.dispose();
+      vi.useRealTimers();
+    }
   });
 });
 

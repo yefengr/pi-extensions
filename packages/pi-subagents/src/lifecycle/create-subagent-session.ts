@@ -12,18 +12,24 @@
  * createSession), so threading the provider through here would be a relay smell.
  */
 
+import { resolve } from "node:path";
 import type { Model } from "@earendil-works/pi-ai";
 import {
   type AgentSession,
+  type InlineExtension,
   type SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentConfigLookup } from "#src/config/agent-types";
 import type { ChildLifecyclePublisher } from "#src/lifecycle/child-lifecycle";
 import type { ParentSnapshot } from "#src/lifecycle/parent-snapshot";
 import { SubagentSession } from "#src/lifecycle/subagent-session";
+import { assertDeclaredTools, matchesTool, selectBuiltinExtensions } from "#src/session/builtin-extensions";
 import type { EnvInfo } from "#src/session/env";
 import type { ModelRegistry } from "#src/session/model-resolver";
+import { createPromptInheritanceExtension, inheritPromptOptions } from "#src/session/prompt-inheritance";
+import type { CheckpointManager } from "#src/session/recovery-checkpoint";
 import { type AssemblerIO, assembleSessionConfig } from "#src/session/session-config";
+import type { SessionLease } from "#src/session/session-lease";
 import type {
   ParentSessionInfo,
   ShellExec,
@@ -53,6 +59,9 @@ export interface SessionManagerLike {
   newSession(opts: { parentSession?: string }): void;
   getSessionFile(): string | undefined;
   getSessionId(): string;
+  getCwd?: CheckpointManager["getCwd"];
+  getLeafId?: CheckpointManager["getLeafId"];
+  appendCustomEntry?: CheckpointManager["appendCustomEntry"];
 }
 
 /** Options passed to EnvironmentIO/SessionFactoryIO methods. */
@@ -64,7 +73,8 @@ export interface ResourceLoaderOptions {
   noPromptTemplates?: boolean;
   noThemes?: boolean;
   noContextFiles?: boolean;
-  systemPromptOverride?: () => string;
+  extensionFactories?: InlineExtension[];
+  systemPromptOverride?: () => string | undefined;
   /** Override the append system prompt. Receives the current base value; return the replacement. */
   appendSystemPromptOverride?: (base: string[]) => string[];
 }
@@ -106,7 +116,7 @@ export interface EnvironmentIO {
 export interface SessionFactoryIO {
   createResourceLoader: (opts: ResourceLoaderOptions) => ResourceLoaderLike;
   createSessionManager: (cwd: string, sessionDir: string) => SessionManagerLike;
-  createSettingsManager: (cwd: string, agentDir: string) => SettingsManager;
+  createSettingsManager: (cwd: string, agentDir: string, projectTrusted?: boolean) => SettingsManager;
   /**
    * Settings view the child's resource loader resolves packages from.
    * The composition root decides whether any package extensions are excluded;
@@ -114,6 +124,9 @@ export interface SessionFactoryIO {
    */
   createLoaderSettingsManager: (parent: SettingsManager) => SettingsManager;
   createSession: (opts: CreateSessionOptions) => Promise<{ session: AgentSession }>;
+  /** Production always supplies lease and read-only target trust lookup. */
+  acquireSessionLease?: (file: string, sessionId: string) => SessionLease;
+  getProjectTrust?: (cwd: string, agentDir: string) => boolean;
   assemblerIO: AssemblerIO;
 }
 
@@ -147,8 +160,12 @@ export interface CreateSubagentSessionParams {
   parentSession?: ParentSessionInfo;
   /** Captures stable child identity before extension binding can fail. */
   onSessionCreated?: (identity: SubagentSessionIdentity) => void;
+  /** Transfers a failed initialized session back to its invocation owner for close/checkpoint. */
+  onInitializationFailed?: (session: SubagentSession) => void;
   model?: Model<any>;
   thinkingLevel?: ThinkingLevel;
+  /** Already leased and strictly validated original manager; never starts a new session. */
+  recovery?: { manager: SessionManagerLike; lease: SessionLease };
 }
 
 /**
@@ -161,10 +178,26 @@ export async function createSubagentSession(
 ): Promise<SubagentSession> {
   const { snapshot, type } = params;
   const parentSessionId = params.parentSession?.parentSessionId;
+  let lease = params.recovery?.lease;
+  let extensionWorkStarted = false;
+  let subagentSession: SubagentSession | undefined;
+  try {
   deps.lifecycle.spawning({ agentName: type, parentSessionId });
 
   // Resolve working directory upfront - needed for detectEnv before assembly.
   const effectiveCwd = params.cwd ?? snapshot.cwd;
+  if (snapshot.projectTrusted !== undefined && !snapshot.promptOptions) {
+    throw new Error("Parent structured system prompt is required for child initialization");
+  }
+  if (snapshot.promptOptions?.forceSystemPrompt !== undefined) {
+    throw new Error("Cannot inherit an opaque forceSystemPrompt");
+  }
+  const sessionDir = deps.io.deriveSessionDir(params.parentSession?.parentSessionFile, effectiveCwd);
+  const sessionManager = params.recovery?.manager ?? deps.io.createSessionManager(effectiveCwd, sessionDir);
+  if (!params.recovery) sessionManager.newSession({ parentSession: params.parentSession?.parentSessionId });
+  const sessionId = sessionManager.getSessionId();
+  const outputFile = sessionManager.getSessionFile();
+  lease ??= outputFile ? deps.io.acquireSessionLease?.(outputFile, sessionId) : undefined;
   const env = await deps.io.detectEnv(deps.exec, effectiveCwd);
 
   // Assemble session configuration (synchronous, no SDK objects).
@@ -172,7 +205,8 @@ export async function createSubagentSession(
     type,
     {
       cwd: snapshot.cwd,
-      parentSystemPrompt: snapshot.systemPrompt,
+      parentSystemPrompt: snapshot.promptOptions ? "" : snapshot.systemPrompt,
+      parentThinkingLevel: snapshot.thinkingLevel,
       parentModel: snapshot.model,
       modelRegistry: snapshot.modelRegistry,
     },
@@ -187,37 +221,42 @@ export async function createSubagentSession(
   );
 
   const agentDir = deps.io.getAgentDir();
-  const sessionSettings = deps.io.createSettingsManager(cfg.effectiveCwd, agentDir);
+  const projectTrusted = resolve(cfg.effectiveCwd) === resolve(snapshot.cwd)
+    ? snapshot.projectTrusted === true
+    : deps.io.getProjectTrust?.(cfg.effectiveCwd, agentDir) === true;
+  const sessionSettings = deps.io.createSettingsManager(cfg.effectiveCwd, agentDir, projectTrusted);
   const loaderSettings = deps.io.createLoaderSettingsManager(sessionSettings);
 
-  // Children inherit the parent's skills and every extension the composition
-  // root did not exclude (#696).
-  //
-  // Suppress AGENTS.md/CLAUDE.md and APPEND_SYSTEM.md - upstream's
-  // buildSystemPrompt() re-appends both AFTER systemPromptOverride, which
-  // would defeat prompt_mode: replace. Parent context, if wanted, reaches the
-  // subagent via prompt_mode: append (parentSystemPrompt is embedded in
-  // systemPromptOverride) or inherit_context (conversation).
+  // Named built-ins retain the SDK's disabled/excluded extension policy. Parent
+  // registered capabilities also prevent recreating built-ins suppressed by CLI.
+  const extensionFactories = selectBuiltinExtensions(cfg.toolNames, { availableTools: snapshot.availableTools });
+  let childAppendSources: string[] = [];
+  if (snapshot.promptOptions) {
+    extensionFactories.push(createPromptInheritanceExtension(snapshot.promptOptions, cfg.systemPrompt, agentDir, () => childAppendSources));
+  }
   const loader = deps.io.createResourceLoader({
     cwd: cfg.effectiveCwd,
     agentDir,
     settingsManager: loaderSettings,
     noPromptTemplates: true,
     noThemes: true,
-    noContextFiles: true,
-    systemPromptOverride: () => cfg.systemPrompt,
-    appendSystemPromptOverride: () => [],
+    noContextFiles: !snapshot.promptOptions,
+    extensionFactories,
+    systemPromptOverride: () => snapshot.promptOptions ? snapshot.promptOptions.customPrompt : cfg.systemPrompt,
+    appendSystemPromptOverride: (base = []) => {
+      childAppendSources = [...base];
+      return snapshot.promptOptions ? base : [];
+    },
   });
+  extensionWorkStarted = true;
   await loader.reload();
+  if (snapshot.promptOptions) {
+    inheritPromptOptions(snapshot.promptOptions, {
+      cwd: cfg.effectiveCwd, appendSystemPrompt: childAppendSources.join("\n\n"),
+    }, cfg.systemPrompt, agentDir, childAppendSources);
+  }
 
-  // Create a persisted SessionManager so transcripts are written in Pi's
-  // official JSONL format. Falls back to a temp directory when the parent
-  // session is not persisted (e.g. headless/API mode).
-  const sessionDir = deps.io.deriveSessionDir(params.parentSession?.parentSessionFile, cfg.effectiveCwd);
-  const sessionManager = deps.io.createSessionManager(cfg.effectiveCwd, sessionDir);
-  sessionManager.newSession({ parentSession: params.parentSession?.parentSessionId });
-  const sessionId = sessionManager.getSessionId();
-
+  // The original manager is reused for recovery; its lease predates any extension work.
   const { session } = await deps.io.createSession({
     cwd: cfg.effectiveCwd,
     agentDir,
@@ -231,14 +270,16 @@ export async function createSubagentSession(
     thinkingLevel: cfg.thinkingLevel,
   });
 
-  const outputFile = sessionManager.getSessionFile();
-  const subagentSession = new SubagentSession(session, {
+  subagentSession = new SubagentSession(session, {
     outputFile,
     sessionId,
     sessionDir,
     agentName: type,
-    parentContext: snapshot.parentContext,
+    parentContext: params.recovery ? undefined : snapshot.parentContext,
     lifecycle: deps.lifecycle,
+    lease,
+    checkpointManager: sessionManager.getCwd && sessionManager.getLeafId && sessionManager.appendCustomEntry
+      ? sessionManager as SessionManagerLike & CheckpointManager : undefined,
   });
 
   params.onSessionCreated?.({ sessionId, outputFile });
@@ -250,16 +291,32 @@ export async function createSubagentSession(
   // subscriber completes before this returns.
   deps.lifecycle.sessionCreated({ sessionId, parentSessionId });
 
-  try {
-    // Bind extensions so that session_start fires and extensions can initialize.
-    await session.bindExtensions({});
-  } catch (err) {
-    // Binding failed after session-created — dispose (child session_shutdown +
-    // session.dispose() + emit disposed) before rethrowing so neither the
-    // registration nor a partially-initialized extension's resources leak.
-    await subagentSession.dispose();
-    throw err;
-  }
-
+  // Bind extensions so that session_start fires and extensions can initialize.
+  await session.bindExtensions({});
+    if (typeof session.getAllTools === "function") {
+      // Late-bound tools such as codemode are registered inactive. Activate only
+      // declared, actually registered names; the SDK's persistent denylist remains.
+      const allowed = session.getAllTools().map((tool) => tool.name).filter((name) =>
+        cfg.toolNames.some((pattern) => matchesTool(pattern, name)) && !EXCLUDED_TOOL_NAMES.includes(name),
+      );
+      assertDeclaredTools(cfg.toolNames, allowed);
+      session.setActiveToolsByName(allowed);
+      assertDeclaredTools(cfg.toolNames, [...new Set([...session.getActiveToolNames(), ...session.getCallableToolNames()])]);
+    }
   return subagentSession;
+  } catch (error) {
+    if (subagentSession) {
+      try { await subagentSession.dispose(); } catch { /* The owner must retain unconfirmed cleanup. */ }
+      params.onInitializationFailed?.(subagentSession);
+    } else if (!extensionWorkStarted) {
+      try { lease?.release(); }
+      catch (releaseError) {
+        throw new AggregateError([error, releaseError], `${error instanceof Error ? error.message : String(error)}; ownership release failed at ${lease?.path}: ${releaseError instanceof Error ? releaseError.message : String(releaseError)}`);
+      }
+    }
+    if (lease && extensionWorkStarted && (!subagentSession?.cleanupConfirmed || !params.onInitializationFailed)) {
+      throw new Error(`${error instanceof Error ? error.message : String(error)}; initialization cleanup is unconfirmed, ownership retained at ${lease.path}`, { cause: error });
+    }
+    throw error;
+  }
 }

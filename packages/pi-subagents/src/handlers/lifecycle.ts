@@ -11,6 +11,7 @@ import type { SessionContext } from "#src/types";
 export interface LifecycleManager {
   clearCompleted(): Promise<void>;
   abortAll(): void;
+  settleInvocations(): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -46,20 +47,16 @@ export class SessionLifecycleHandler {
     return this.manager.clearCompleted();
   }
 
-  // Cleanup order matters:
-  // 1. Unpublish service — prevent new cross-extension calls
-  // 2. Clear session context — no more session state
-  // 3. Dispose notifications — silence nudges *before* the aborts that would
-  //    raise them: no parent run is active at shutdown, so a terminal
-  //    transition delivers its nudge synchronously and Pi cannot recall it
-  // 4. Abort all agents — stop running and queued work
-  // 5. Dispose manager — final cleanup, awaited so each child's extensions get
-  //    their `session_shutdown` before Pi tears the parent down (#709)
-  handleSessionShutdown(): Promise<void> {
+  // Keep the original parent context available until terminal children have
+  // persisted their close checkpoints. Silence notifications before aborting.
+  async handleSessionShutdown(): Promise<void> {
     this.unpublishService();
-    this.runtime.clearSessionContext();
     this.disposeNotifications();
     this.manager.abortAll();
-    return this.manager.dispose();
+    try {
+      await this.manager.settleInvocations();
+      await this.manager.dispose();
+    }
+    finally { this.runtime.clearSessionContext(); }
   }
 }

@@ -53,17 +53,18 @@ export interface ShutdownCapableSession {
 export async function emitChildSessionShutdown(
   session: ShutdownCapableSession,
   timeoutMs: number = CHILD_SHUTDOWN_TIMEOUT_MS,
-): Promise<void> {
+): Promise<boolean> {
   const runner = session.extensionRunner;
-  if (!runner || !hasShutdownHandlers(session)) return;
+  if (!runner || !hasShutdownHandlers(session)) return true;
 
   try {
     const emitted = runner.emit({ type: SESSION_SHUTDOWN, reason: "quit" });
-    if ((await settleWithinBound(emitted, timeoutMs)) === "timed-out") {
-      debugLog("child session_shutdown exceeded its bound (ms)", timeoutMs);
-    }
+    const outcome = await settleWithinBound(emitted, timeoutMs);
+    if (outcome === "timed-out") debugLog("child session_shutdown exceeded its bound (ms)", timeoutMs);
+    return outcome === "settled";
   } catch (err) {
     debugLog("child session_shutdown emit", err);
+    return false;
   }
 }
 
@@ -72,12 +73,11 @@ function hasShutdownHandlers(session: ShutdownCapableSession): boolean {
   return session.hasExtensionHandlers?.(SESSION_SHUTDOWN) ?? true;
 }
 
-type ShutdownOutcome = "settled" | "timed-out";
+type ShutdownOutcome = "settled" | "timed-out" | "failed";
 
 /**
- * Resolve when `emitted` settles or when `timeoutMs` elapses, whichever is first.
- * A rejection counts as settled (the caller logs it); the timer is always cleared,
- * so a prompt shutdown leaves nothing holding the event loop.
+ * Resolves once the emit settles or reaches its bound. Rejection is reported as
+ * failed; the timer is always cleared so prompt shutdown leaves no pending work.
  */
 async function settleWithinBound(
   emitted: Promise<unknown>,
@@ -93,7 +93,7 @@ async function settleWithinBound(
     (): ShutdownOutcome => "settled",
     (err: unknown): ShutdownOutcome => {
       debugLog("child session_shutdown handler", err);
-      return "settled";
+      return "failed";
     },
   );
 

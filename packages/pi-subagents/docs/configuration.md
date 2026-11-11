@@ -9,17 +9,16 @@ For the tools, commands, events, and service API, see the [README](../README.md)
 
 | Type              | Tools                      | Model                         | Prompt Mode            | Description                                                                                      |
 | ----------------- | -------------------------- | ----------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
-| `general-purpose` | all 7                      | inherit                       | `append` (parent twin) | Inherits the parent's full system prompt — same rules, CLAUDE.md, project conventions            |
+| `general-purpose` | all 7                      | inherit                       | `append` (parent twin) | Inherits parent identity and user rules; tools and project resources describe the child environment |
 
-The `general-purpose` agent is a **parent twin** — it receives the parent's entire system prompt plus a sub-agent context bridge, so it follows the same rules the parent does.
-It is also the fallback target for unknown agent types, so a mistyped or removed type degrades to the parent twin instead of failing.
+The `general-purpose` agent inherits the parent's identity and shared rules plus a sub-agent context bridge. Pi regenerates tool instructions, skills, working-directory information, and applicable project context for the child.
+It is also the fallback target for unknown agent types; a disabled known type still fails instead of bypassing its enablement setting.
 
-An agent configured with `prompt_mode: replace` keeps full control of its prompt: the parent prompt is the cacheable base and the specialist instructions are appended last, giving them the final say.
-A `model` set in the agent definition is resolved against the registry; when the pinned model is unavailable the spawn inherits the parent model.
+An agent configured with `prompt_mode: replace` preserves the inherited identity and places specialist instructions last, without the bridge or `<agent_instructions>` wrapper. Profile model and thinking settings take precedence over tool or service parameters; unspecified thinking inherits the parent's value captured at dispatch.
 
-In every mode, a child that runs somewhere other than the parent — one given an isolated workspace by a `WorkspaceProvider` — does not inherit the parent's `Current working directory:` footer.
-That line is stripped from the inherited prompt, leaving the fresh footer Pi appends for the child session's own directory as the single, correct claim; without the strip, the child follows the parent's path instead.
-A child sharing the parent's directory inherits the prompt untouched, so its prefix stays byte-identical to the parent's.
+Prompt inheritance uses the SDK's structured construction options rather than cutting sections out of rendered text. Explicit user sections retain their contents even when named `tools`, `rules`, or `cwd`. Changing directories reloads the target project's context files and resource paths; user-level rules are deduplicated by path. An opaque forced prompt, a stale structured snapshot, or cross-directory APPEND text whose scope cannot be verified causes an explicit error instead of silently dropping instructions. There is no byte-identical parent-prefix guarantee.
+
+Target directories use their own existing project-trust decision. Trust in the parent project does not grant trust to another project.
 
 Default agents can be **overridden** by creating a `.md` file with the same name (e.g. `.pi/agents/general-purpose.md`). Enablement is managed by `/subagents:agents` and stored per project or globally in `subagents.json`.
 A custom agent joins the default list with `is_default: true`; its `tool_guideline` then becomes a one-line hint in the `subagent` tool description.
@@ -84,8 +83,8 @@ All fields are optional — sensible defaults for everything.
 | `max_turns`         | global limit   | Positive hard maximum for model turns. It can only tighten the global setting; `0` is invalid.                                                                                                                                                                                                                          |
 | `wrap_up_turns`     | global setting | Non-negative turns reserved within the hard maximum for a final response. It is clamped to `0..max_turns - 1`.                                                                                                                                                                                                          |
 | `max_duration_seconds` | global limit | Positive execution-time limit in seconds. It can only tighten the global setting.                                                                                                                                                                                                                                       |
-| `prompt_mode`       | `append`       | `replace`: parent prompt is the cacheable base; body is appended last with full control (no `<sub_agent_context>` bridge, no `<agent_instructions>` wrapper). `append`: parent prompt is the base; body is wrapped in `<agent_instructions>` and a sub-agent context bridge is injected (agent acts as a "parent twin") |
-| `inherit_context`   | `false`        | Fork parent conversation into agent                                                                                                                                                                                                                                                                                     |
+| `prompt_mode`       | `append`       | `replace`: inherited identity followed by specialist instructions, without bridge or wrapper. `append`: adds the sub-agent bridge and wraps specialist instructions in `<agent_instructions>`. Child tools, skills, cwd, and project context are rebuilt in either mode. |
+| `inherit_context`   | `false`        | Prepend parent user/assistant text and compaction summaries to the fresh task; tool results and non-text content are omitted. |
 | `run_in_background` | `false`        | Run in background by default                                                                                                                                                                                                                                                                                            |
 Enablement is not an agent-definition field. Use `/subagents:agents` to choose `当前项目` or `全局`, then enable, disable, or restore inheritance. Project overrides are stored in `<cwd>/.pi/subagents.json`; personal global overrides are stored in `~/.pi/agent/subagents.local.json`. The shared `~/.pi/agent/subagents.json` remains read-only for this feature. The persisted `agentEnabled` map uses project-over-global precedence.
 
@@ -107,10 +106,7 @@ tools: read, grep, find, agent_browser
 ---
 ```
 
-Naming an extension's tool is the supported way to give a child access to it.
-This matters because a child loads the parent's extensions and runs their setup functions, so an extension **does** call `registerTool` inside the child — and Pi then drops that tool, because the allowlist is applied before the child's tool registry is built.
-The registration reports no error; the tool simply is not there.
-List the tool by name and it is admitted the moment its extension registers it.
+Naming an extension's tool admits it when that extension registers it in the child. After binding extensions, every declared tool must be available; missing tools fail initialization with their names instead of disappearing silently. SDK built-ins (`codemode`, `tool_search`, and MCP) load only when the declared tools need them, respecting native disable settings and package exclusions. A tool list limits callable capabilities; it is not an operating-system sandbox.
 
 Three names are always removed from a child, even when an agent lists them: `subagent`, `get_subagent_result`, and `steer_subagent`.
 This is the recursion guard — without it, an agent could spawn agents of its own without bound.
@@ -131,7 +127,7 @@ Omitting `tools` entirely gives the agent all seven built-ins and no extension t
 
 Two other settings interact with this list:
 
-- [`excludedExtensionPackages`](#excluding-package-extensions-from-children) stops an extension from loading in children at all, so naming one of its tools has no effect there.
+- [`excludedExtensionPackages`](#excluding-package-extensions-from-children) stops a package extension from loading in children; declaring its unavailable tools therefore fails initialization.
 - When [`@gotgenes/pi-permission-system`](https://github.com/gotgenes/pi-packages/tree/main/packages/pi-permission-system) is installed, its `permission:` frontmatter narrows the set further, per turn.
   Use it to deny a tool; use `tools` to decide what the agent has in the first place.
 

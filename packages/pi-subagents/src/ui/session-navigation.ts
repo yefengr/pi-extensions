@@ -15,6 +15,7 @@
 import { buildSessionContext, parseSessionEntries, type SessionEntry, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AgentConfigLookup } from "#src/config/agent-types";
 import type { SubagentOutcome, SubagentPhase } from "#src/lifecycle/subagent-state";
+import type { SavedAgentHistory } from "#src/session/persisted-records";
 import type { AgentSessionEvent, SessionMessage, SubagentType } from "#src/types";
 import { formatDuration, getDisplayName } from "#src/ui/display";
 
@@ -93,6 +94,7 @@ export interface TranscriptSource {
 export function listNavigableAgents(
   agents: readonly NavigableSubagent[],
   registry: AgentConfigLookup,
+  persisted: readonly SavedAgentHistory[] = [],
 ): NavigationEntry[] {
   const live: NavigationEntry[] = [];
   const snapshots: NavigationEntry[] = [];
@@ -102,6 +104,14 @@ export function listNavigableAgents(
     } else if (record.outputFile) {
       snapshots.push({ kind: "snapshot", outputFile: record.outputFile, label: buildLabel(record, registry, true) });
     }
+  }
+  const inMemory = new Set(agents.map((agent) => agent.id));
+  for (const history of persisted) {
+    if (inMemory.has(history.latest.id) || !history.outputFile) continue;
+    const record = history.latest;
+    snapshots.push({ kind: "snapshot", outputFile: history.outputFile,
+      label: buildLabel({ ...record, toolUses: record.lifetimeToolUses }, registry, true)
+        + (history.issues.length ? " · history incomplete" : "") });
   }
   return [...live, ...snapshots];
 }

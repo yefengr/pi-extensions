@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Rebuild child environment instructions from verified structured prompt options, inherit thinking and project trust, and load SDK built-in extensions only for declared tools; require Pi SDK `>=1.5.1`.
+- Classify final model errors and empty responses within the current invocation, check cancellation before initialization, and retain ownership while underlying work or cleanup remains unsettled.
+- Read saved v2/v3 results and transcripts from the current parent-session branch after in-memory records disappear, reporting incomplete history without starting a model request.
+- Add same-parent cold resume for v3 histories with a verified private close checkpoint and no ownership marker, preserving agent/session IDs, invocation sequence, and lifetime metrics. Old or abnormal histories remain query-only; public lifecycle v3 and service contracts stay unchanged.
+
 ## 0.3.0
 
 - Remove the built-in `Explore` and `Plan` agent types; `general-purpose` is now the only embedded default and remains the fallback for unknown types.

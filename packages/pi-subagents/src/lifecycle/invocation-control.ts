@@ -59,6 +59,12 @@ export class InvocationControl {
     return this.timedOut;
   }
 
+  /** Call before starting work; racing an already-created Promise is too late. */
+  throwIfStopped(): void {
+    if (this.timedOut) throw this.timeoutError;
+    if (this.options.cancelSignal.aborted) throw new InvocationCancelledError();
+  }
+
   async waitFor<T>(operation: Promise<T>): Promise<T> {
     try {
       const value = await Promise.race([operation, this.failure]);

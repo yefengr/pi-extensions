@@ -98,7 +98,7 @@ describe("createSubagentSession — assembly", () => {
     expect(io.createResourceLoader).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: "/tmp/worktree", agentDir: "/mock/agent-dir" }),
     );
-    expect(io.createSettingsManager).toHaveBeenCalledWith("/tmp/worktree", "/mock/agent-dir");
+    expect(io.createSettingsManager).toHaveBeenCalledWith("/tmp/worktree", "/mock/agent-dir", false);
     expect(io.createSessionManager).toHaveBeenCalledWith("/tmp/worktree", "/mock/session-dir/tasks");
     expect(io.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: "/tmp/worktree", agentDir: "/mock/agent-dir" }),
@@ -123,6 +123,106 @@ describe("createSubagentSession — assembly", () => {
     expect(io.createSession).toHaveBeenCalledWith(
       expect.objectContaining({ settingsManager: sessionSettings }),
     );
+  });
+
+  it("inherits same-directory trust and uses only the target's existing decision across cwd", async () => {
+    for (const [cwd, trusted] of [[STUB_SNAPSHOT.cwd, true], ["/different-worktree", false], ["/approved-worktree", true]] as const) {
+      io.createSettingsManager.mockClear();
+      const snapshot = { ...STUB_SNAPSHOT, projectTrusted: true, promptOptions: { cwd: STUB_SNAPSHOT.cwd } };
+      const getProjectTrust = vi.fn(() => trusted);
+      const deps = { ...defaultDeps(), io: { ...io, getProjectTrust } };
+      await createSubagentSession({ snapshot, type: "Explore", cwd }, deps);
+      expect(io.createSettingsManager).toHaveBeenCalledWith(cwd, "/mock/agent-dir", trusted);
+      expect(getProjectTrust).toHaveBeenCalledTimes(cwd === STUB_SNAPSHOT.cwd ? 0 : 1);
+      const options = io.createResourceLoader.mock.lastCall?.[0];
+      expect(options.noContextFiles).toBe(false);
+      expect(options.appendSystemPromptOverride(["target rules"])).toEqual(["target rules"]);
+    }
+  });
+
+  it("rejects unverified cross-directory APPEND scope before creating an SDK session", async () => {
+    const snapshot = { ...STUB_SNAPSHOT, promptOptions: { cwd: STUB_SNAPSHOT.cwd, appendSystemPrompt: "parent project rules" } };
+    await expect(createSubagentSession({ snapshot, type: "Explore", cwd: "/target" }, defaultDeps()))
+      .rejects.toThrow("verified source metadata");
+    expect(io.createSession).not.toHaveBeenCalled();
+  });
+
+  it("releases ownership when pre-extension environment discovery fails", async () => {
+    const lease = { path: "/tasks/.child-lease", token: "owner", release: vi.fn() };
+    io.detectEnv.mockRejectedValueOnce(new Error("environment failed"));
+    const deps = { ...defaultDeps(), io: { ...io, acquireSessionLease: () => lease } };
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, deps)).rejects.toThrow("environment failed");
+    expect(lease.release).toHaveBeenCalledOnce();
+    expect(io.createSession).not.toHaveBeenCalled();
+  });
+
+  it("releases the existing recovery lease after pre-extension failure without creating a session", async () => {
+    const lease = { path: "/tasks/.existing-lease", token: "owner", release: vi.fn() };
+    const manager = io.createSessionManager("/original", "/tasks");
+    io.createSessionManager.mockClear();
+    io.detectEnv.mockRejectedValueOnce(new Error("recovery environment failed"));
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore", recovery: { manager, lease } }, defaultDeps()))
+      .rejects.toThrow("recovery environment failed");
+    expect(lease.release).toHaveBeenCalledOnce();
+    expect(io.createSessionManager).not.toHaveBeenCalled();
+    expect(manager.newSession).not.toHaveBeenCalled();
+    expect(io.createSession).not.toHaveBeenCalled();
+  });
+
+  it("preserves the initialization cause and marker path when ownership release fails", async () => {
+    const cause = new Error("environment failed");
+    const releaseError = new Error("owner changed");
+    const lease = { path: "/tasks/.child-lease", token: "owner", release: vi.fn(() => { throw releaseError; }) };
+    io.detectEnv.mockRejectedValueOnce(cause);
+    const deps = { ...defaultDeps(), io: { ...io, acquireSessionLease: () => lease } };
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, deps))
+      .rejects.toMatchObject({ message: expect.stringContaining(lease.path), errors: [cause, releaseError] });
+  });
+
+  it("hands confirmed bind-failure cleanup back to the invocation owner", async () => {
+    const lease = { path: "/tasks/.child-lease", token: "owner", release: vi.fn() };
+    const session = createFactorySession();
+    session.bindExtensions.mockRejectedValueOnce(new Error("bind failed"));
+    io.createSession.mockResolvedValueOnce({ session });
+    const failed = vi.fn();
+    const deps = { ...defaultDeps(), io: { ...io, acquireSessionLease: () => lease } };
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore", onInitializationFailed: failed }, deps))
+      .rejects.toThrow("bind failed");
+    expect(failed).toHaveBeenCalledOnce();
+    expect(failed.mock.calls[0][0].cleanupConfirmed).toBe(true);
+    expect(lease.release).not.toHaveBeenCalled(); // The parent terminal must still be persisted first.
+  });
+
+  it("exposes retained ownership when SDK initialization cleanup cannot be confirmed", async () => {
+    const lease = { path: "/tasks/.child-lease", token: "owner", release: vi.fn() };
+    io.createSession.mockRejectedValueOnce(new Error("SDK initialization failed"));
+    const deps = { ...defaultDeps(), io: { ...io, acquireSessionLease: () => lease } };
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, deps)).rejects.toThrow(lease.path);
+    expect(lease.release).not.toHaveBeenCalled();
+  });
+
+  it("activates only declared registered names and rejects missing or excess callable tools", async () => {
+    const sessionWithTools = Object.assign(createFactorySession(), {
+      getAllTools: vi.fn(() => [{ name: "read" }, { name: "subagent" }, { name: "write" }]),
+      getCallableToolNames: vi.fn(() => ["read"]),
+    });
+    io.createSession.mockResolvedValue({ session: sessionWithTools });
+    await createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, defaultDeps());
+    expect(sessionWithTools.setActiveToolsByName).toHaveBeenCalledExactlyOnceWith(["read"]);
+    sessionWithTools.getCallableToolNames.mockReturnValueOnce(["read", "write"]);
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, defaultDeps()))
+      .rejects.toThrow("exceed the declared allowlist");
+    sessionWithTools.getAllTools.mockReturnValueOnce([{ name: "write" }]);
+    await expect(createSubagentSession({ snapshot: STUB_SNAPSHOT, type: "Explore" }, defaultDeps()))
+      .rejects.toThrow("unavailable after extension binding");
+  });
+
+  it("rejects opaque or missing production prompt state before creating SDK objects", async () => {
+    await expect(createSubagentSession({ snapshot: { ...STUB_SNAPSHOT, projectTrusted: false }, type: "Explore" }, defaultDeps()))
+      .rejects.toThrow("structured system prompt");
+    await expect(createSubagentSession({ snapshot: { ...STUB_SNAPSHOT, promptOptions: { cwd: "/tmp", forceSystemPrompt: "" } }, type: "Explore" }, defaultDeps()))
+      .rejects.toThrow("opaque forceSystemPrompt");
+    expect(io.createSession).not.toHaveBeenCalled();
   });
 
   it("creates the session's settings manager exactly once and reuses it", async () => {

@@ -1,10 +1,13 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { AgentConfigLookup } from "#src/config/agent-types";
+import { getAgentConversation } from "#src/session/conversation";
+import type { PersistedSubagentStore } from "#src/session/persisted-records";
 import { type AgentReport, formatAgentReport } from "#src/tools/get-result-report";
 import { formatLifetimeTokens, textResult } from "#src/tools/helpers";
 import type { Subagent } from "#src/types";
 import { formatDuration, getDisplayName } from "#src/ui/display";
+import { fileSnapshotSource } from "#src/ui/session-navigation";
 
 // ---- Deps interfaces ----
 
@@ -18,6 +21,7 @@ export class GetResultTool {
 	constructor(
 		private readonly manager: GetResultToolManager,
 		private readonly registry: AgentConfigLookup,
+		private readonly history?: PersistedSubagentStore,
 	) {}
 
 	async execute(
@@ -28,9 +32,7 @@ export class GetResultTool {
 		_ctx: unknown,
 	) {
 		const record = this.manager.getRecord(params.agent_id);
-		if (!record) {
-			return textResult(`Agent not found: "${params.agent_id}". Records are cleared at session start/switch, so it may be from a previous session.`);
-		}
+		if (!record) return this.persistedResult(params.agent_id, params.verbose);
 
 		// Wait for completion if requested. The record owns the decision of whether
 		// it is still awaitable — a queued agent counts, because scheduleVia()
@@ -48,6 +50,39 @@ export class GetResultTool {
 		}
 
 		return textResult(formatAgentReport(this.buildReport(record, params.verbose)));
+	}
+
+	private persistedResult(id: string, verbose?: boolean) {
+		try {
+			const saved = this.history?.get(id);
+			if (!saved) return textResult(`Agent not found: "${id}". No record exists on the current parent session branch.`);
+			const record = saved.latest;
+			let conversation: string | undefined;
+			if (verbose && saved.outputFile) {
+				try {
+					const transcript = this.history!.readTranscript(saved);
+					// The native viewer can recover a readable prefix, but a damaged tail
+					// must never be presented as a complete conversation.
+					for (const line of transcript.trimEnd().split(/\r?\n/)) JSON.parse(line);
+					const source = fileSnapshotSource(saved.outputFile, () => transcript);
+					conversation = getAgentConversation({ messages: source.getMessages() });
+				} catch (error) {
+					saved.issues.push(`Transcript incomplete: ${error instanceof Error ? error.message : String(error)}`);
+				}
+			}
+			const report: AgentReport = {
+				id: record.id, displayName: getDisplayName(record.type, this.registry),
+				phase: "terminal", outcome: record.outcome, toolUses: record.lifetimeToolUses,
+				tokens: formatLifetimeTokens(record), contextPercent: null, compactionCount: 0,
+				duration: formatDuration(record.startedAt, record.completedAt), description: record.description,
+				result: record.result, error: record.error, stoppedWhileQueued: record.sessionState === "not-created",
+				transcriptPath: saved.outputFile, conversation,
+			};
+			return textResult(formatAgentReport(report) + (saved.issues.length
+				? `\n\nHistory incomplete: ${saved.issues.join("; ")}` : ""));
+		} catch (error) {
+			return textResult(`Cannot read persisted subagent "${id}": ${error instanceof Error ? error.message : String(error)}`);
+		}
 	}
 
 	private buildReport(record: Subagent, verbose?: boolean): AgentReport {

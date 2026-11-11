@@ -12,12 +12,12 @@ The local baseline comes from `@gotgenes/pi-subagents@19.3.4` and has since evol
 - **Session transcripts** — open any subagent's full session transcript (running or with its session released) in pi's native read-only viewer via `/subagents:sessions`
 - **Custom agent types** — define agents in `.pi/agents/<name>.md` with YAML frontmatter: custom system prompts, model selection, thinking levels, tool restrictions
 - **Mid-run steering** — inject messages into running agents to redirect their work without restarting
-- **Session resume** — pick up where an agent left off, preserving full conversation context
+- **Session resume** — continue a live session or safely reopen a normally closed child in the same parent session, preserving its ID and conversation
 - **Bounded invocations** — strict turn and runtime budgets, a reserved wrap-up window, and independent queue deadlines keep every invocation finite
 - **Case-insensitive agent types** — `"general-purpose"`, `"GENERAL-PURPOSE"`, `"General-Purpose"` all work.
   Unknown types fall back to general-purpose with a note
 - **Fuzzy model selection** — specify models by name (`"haiku"`, `"sonnet"`) instead of full IDs, with automatic filtering to only available/configured models
-- **Context inheritance** — optionally fork the parent conversation into a sub-agent so it knows what's been discussed
+- **Context inheritance** — optionally prepend the parent's user/assistant text and compaction summaries to the fresh task; tool results and non-text content are not copied
 - **Styled completion notifications** — background agent results render as themed, compact notification boxes (icon, stats, result preview) instead of raw XML.
   Expandable to show full output
 - **Event bus** — lifecycle events (`subagents:created`, `started`, `completed`, `failed`, `resumed`, `steered`, `compacted`) emitted via `pi.events`, enabling other extensions to react to sub-agent activity
@@ -30,7 +30,7 @@ Install from npm:
 pi install npm:@yefengr/pi-subagents
 ```
 
-Run `/reload` or restart Pi after installation. Other extensions can also depend on this package through `@yefengr/pi-subagents`.
+Run `/reload` or restart Pi after installation. This implementation requires Pi SDK `>=1.5.1`, the verified baseline for structured prompt options and built-in extension factories. Other extensions can also depend on this package through `@yefengr/pi-subagents`.
 
 The package also ships the package-bundled skill `orchestrate-subagents`, which Pi discovers automatically after installation. It covers capability checks, delegation readiness, ownership and evidence handoff, review triggers, and lifecycle closeout.
 
@@ -128,17 +128,23 @@ Launch a sub-agent.
 | `max_duration_seconds` | integer   | no       | Execution-time limit in seconds; can only tighten the configured limit |
 | `run_in_background` | boolean      | no       | Run without blocking                                             |
 | `resume`            | string       | no       | Agent ID to resume a previous session                            |
-| `inherit_context`   | boolean      | no       | Fork parent conversation into agent                              |
+| `inherit_context`   | boolean      | no       | Prepend parent conversation text and summaries to the fresh task |
 
 ### `get_subagent_result`
 
-Check status and retrieve results from a background agent.
+Check status and retrieve results from a background agent. Once an in-memory record is unavailable, lookup reads the current parent-session branch and verifies the matching child transcript. Reading stored results starts no model request, binds no extensions, and replays no completion notifications. Missing transcripts do not erase the saved result; incomplete history is reported explicitly.
 
 | Parameter  | Type    | Required | Description                   |
 | ---------- | ------- | -------- | ----------------------------- |
 | `agent_id` | string  | yes      | Agent ID to check             |
 | `wait`     | boolean | no       | Wait for completion           |
 | `verbose`  | boolean | no       | Include full conversation log |
+
+### Resuming a persisted session
+
+Use `subagent` with `resume: "<agent-id>"` and a new prompt. If the live session was released, the tool can reopen its original transcript within the same parent session and current branch. The original role must still be enabled, the original working directory must exist, and the latest v3 terminal record must match a private close checkpoint written after confirmed cleanup. The agent ID, child session ID, and invocation sequence continue; each new invocation starts with zeroed counters while retaining verified lifetime totals.
+
+Older v2/v3 records without that checkpoint remain readable but cannot be resumed. A missing or damaged file, unfinished tail, changed branch or cwd, unknown format, or existing ownership marker causes refusal without creating a replacement session. Ownership uses a local exclusive marker shared by this extension's instances. A timeout does not prove that a tool stopped, and crash markers are never removed based on PID or age. Direct opening by third-party tools is outside this protection. Initialization failures that cannot confirm extension cleanup also retain ownership; the error reports the marker path for diagnosis. Background and cross-parent recovery are unsupported.
 
 ### `steer_subagent`
 
@@ -207,7 +213,7 @@ It receives the standard pair of session lifecycle events:
 | `session_shutdown` | The child session is disposed                       | `"quit"`    |
 
 Disposal happens when the retention window for a finished agent expires, when completed records are cleared at session start or switch, when the parent session shuts down, or when child extension binding fails partway.
-It does **not** happen the moment an agent finishes: the session is retained so the agent can be resumed, per the `consumedSessionRetentionMinutes` and `unconsumedSessionRetentionMinutes` settings above. The lightweight subagent record retains the child `sessionId` and optional `outputFile` even after the heavy session object is released.
+It does **not** happen the moment an agent finishes: the session is retained so the agent can be resumed, per the `consumedSessionRetentionMinutes` and `unconsumedSessionRetentionMinutes` settings above. The lightweight subagent record retains the child `sessionId` and optional `outputFile` even after the heavy session object is released. The extension confirms invocation and workspace work has stopped, persists and verifies the parent terminal entry, completes child cleanup, appends a private close checkpoint through the original session manager, then releases ownership. Incomplete cleanup keeps ownership and cannot enable cold resume.
 
 The shutdown event is dispatched and awaited **before** the child's `AgentSession` is disposed, so a handler still has a live context and can close what it opened — stdio subprocesses, sockets, timers, file handles.
 Each child's shutdown is bounded: a handler that never resolves is abandoned after a few seconds and disposal proceeds, so one misbehaving extension cannot stall the parent's teardown or Pi's exit.

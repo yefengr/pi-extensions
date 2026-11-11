@@ -53,6 +53,7 @@ export interface AssemblerContext {
   parentModel?: Model<any>;
   /** Model registry for resolving config.model strings. */
   modelRegistry: ModelRegistry;
+  parentThinkingLevel?: ThinkingLevel;
 }
 
 /**
@@ -62,9 +63,9 @@ export interface AssemblerContext {
 export interface AssemblerOptions {
   /** Override working directory (e.g. for worktree isolation). */
   cwd?: string;
-  /** Explicit model override — wins over agentConfig.model and parent model. */
+  /** Model fallback when the agent definition does not select an available model. */
   model?: Model<any>;
-  /** Explicit thinking level — wins over agentConfig.thinking. */
+  /** Thinking fallback when the agent definition does not select a level. */
   thinkingLevel?: ThinkingLevel;
 }
 
@@ -159,13 +160,14 @@ export function assembleSessionConfig(
     cwd: ctx.cwd,
   });
 
-  // Model resolution: explicit option > config model string > parent model
-  const model =
-    options.model ??
-    resolveDefaultModel(ctx.parentModel, ctx.modelRegistry, agentConfig.model);
+  // Agent definitions take priority over invocation arguments.
+  const model = resolveDefaultModel(
+    options.model ?? ctx.parentModel,
+    ctx.modelRegistry,
+    agentConfig.model,
+  );
 
-  // Thinking level: explicit option > agent config > undefined (inherit)
-  const thinkingLevel = options.thinkingLevel ?? agentConfig.thinking;
+  const thinkingLevel = agentConfig.thinking ?? options.thinkingLevel ?? ctx.parentThinkingLevel;
 
   return {
     effectiveCwd,

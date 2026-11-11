@@ -95,6 +95,40 @@ describe("AgentTool", () => {
 });
 
 describe("AgentTool — resume path", () => {
+	it("refuses an already cancelled request before initialization", async () => {
+		const deps = createToolDeps();
+		const controller = new AbortController();
+		controller.abort();
+		const result = await makeTool(deps).execute("cancelled", { prompt: "continue", resume: "saved" }, controller.signal, undefined, makeCtx());
+		expect(result.content[0].text).toContain("cancelled before initialization");
+		expect(deps.manager.getRecord).not.toHaveBeenCalled();
+		expect(deps.manager.spawn).not.toHaveBeenCalled();
+	});
+
+	it("restores missing in-memory records using the saved original type", async () => {
+		const deps = createToolDeps();
+		const restored = createTestSubagent();
+		restored.subagentSession = toSubagentSession(createSubagentSessionStub());
+		deps.manager.getRecord = vi.fn().mockReturnValue(undefined);
+		const restore = vi.fn().mockResolvedValue(restored);
+		Object.assign(deps.manager, { getSavedRecord: vi.fn(() => ({ type: "general-purpose" })), restore });
+		deps.manager.resume = vi.fn().mockResolvedValue(createTestSubagent({ result: "Recovered answer" }));
+		const result = await execute(deps, { prompt: "continue", description: "resume", subagent_type: "unrelated", resume: "saved" });
+		expect(result.content[0].text).toBe("Recovered answer");
+		expect(restore).toHaveBeenCalledWith("saved", expect.anything(), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+		expect(deps.manager.resume).toHaveBeenCalledWith("saved", "continue", expect.objectContaining({ kind: "resume" }), expect.anything(), expect.any(AbortSignal));
+	});
+
+	it("reports cold-resume refusal without creating an invocation", async () => {
+		const deps = createToolDeps();
+		deps.manager.getRecord = vi.fn().mockReturnValue(undefined);
+		const restore = vi.fn().mockRejectedValue(new Error("Child session is occupied"));
+		Object.assign(deps.manager, { getSavedRecord: vi.fn(() => ({ type: "general-purpose" })), restore });
+		const result = await execute(deps, { prompt: "continue", description: "resume", resume: "saved" });
+		expect(result.content[0].text).toContain("Cold resume refused: Child session is occupied");
+		expect(deps.manager.resume).not.toHaveBeenCalled();
+	});
+
 	it("returns not-found when resume ID does not exist", async () => {
 		const deps = createToolDeps();
 		deps.manager.getRecord = vi.fn().mockReturnValue(undefined);

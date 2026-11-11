@@ -1,6 +1,6 @@
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SubagentSession } from "#src/lifecycle/subagent-session";
+import { SubagentSession, type SubagentSessionMeta } from "#src/lifecycle/subagent-session";
 import { createChildLifecycleMock } from "#test/helpers/subagent-session-io";
 
 // ── Session mock factory ───────────────────────────────────────────────────────
@@ -86,6 +86,8 @@ function makeSubagentSession(
     agentName: string;
     parentContext: string | undefined;
     lifecycle: ReturnType<typeof createChildLifecycleMock>;
+    lease: SubagentSessionMeta["lease"];
+    checkpointManager: SubagentSessionMeta["checkpointManager"];
   }>,
 ) {
   const lifecycle = metaOverrides?.lifecycle ?? createChildLifecycleMock();
@@ -96,6 +98,8 @@ function makeSubagentSession(
     sessionDir: metaOverrides?.sessionDir ?? "/sessions/dir",
     agentName: metaOverrides?.agentName ?? "Explore",
     parentContext: metaOverrides?.parentContext,
+    lease: metaOverrides?.lease,
+    checkpointManager: metaOverrides?.checkpointManager,
     lifecycle,
   });
   return { sub, lifecycle };
@@ -148,6 +152,66 @@ describe("SubagentSession — response capture", () => {
     const { sub } = makeSubagentSession(session);
     const result = await sub.runTurnLoop("go", DEFAULT_LIMITS);
     expect(result.responseText).toBe("hello world");
+  });
+
+  it("does not reuse an earlier reply when resume produces no new assistant text", async () => {
+    const { session } = createSession("EARLIER");
+    const { sub } = makeSubagentSession(session);
+    await sub.runTurnLoop("first", DEFAULT_LIMITS);
+    session.prompt = vi.fn(async () => {});
+    const result = await sub.resumeTurnLoop("second", DEFAULT_LIMITS);
+    expect(result).toMatchObject({ responseText: "", outcome: "completed" });
+  });
+
+  it("reports a final model error even when prompt resolves normally", async () => {
+    const { session } = createSession("old reply");
+    session.prompt = vi.fn(async () => {
+      session.messages.push({ role: "assistant", content: [], stopReason: "error", errorMessage: "rate limit exhausted" });
+    });
+    const { sub } = makeSubagentSession(session);
+    await expect(sub.runTurnLoop("go", DEFAULT_LIMITS)).rejects.toThrow("rate limit exhausted");
+  });
+
+  it("uses the successful retry instead of the earlier error", async () => {
+    const { session, listeners } = createSession("unused");
+    session.prompt = vi.fn(async () => {
+      const error = { role: "assistant", content: [], stopReason: "error", errorMessage: "transient" };
+      const success = { role: "assistant", content: [{ type: "text", text: "retried" }], stopReason: "stop" };
+      for (const message of [error, success]) {
+        session.messages.push(message);
+        for (const listener of listeners) listener({ type: "message_end", message });
+      }
+    });
+    const { sub } = makeSubagentSession(session);
+    await expect(sub.runTurnLoop("go", DEFAULT_LIMITS)).resolves.toMatchObject({ responseText: "retried", outcome: "completed" });
+  });
+
+  it("keeps a legitimate empty final answer empty after a tool turn", async () => {
+    const { session } = createSession("unused");
+    session.prompt = vi.fn(async () => {
+      session.messages.push({ role: "assistant", content: [{ type: "text", text: "working" }], stopReason: "toolUse" });
+      session.messages.push({ role: "assistant", content: [], stopReason: "stop" });
+    });
+    const { sub } = makeSubagentSession(session);
+    await expect(sub.runTurnLoop("go", DEFAULT_LIMITS)).resolves.toMatchObject({ responseText: "", outcome: "completed" });
+  });
+
+  it("does not start a prompt after its signal was already cancelled", async () => {
+    const { session } = createSession("unused");
+    const { sub } = makeSubagentSession(session);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(sub.runTurnLoop("go", { ...DEFAULT_LIMITS, signal: controller.signal })).resolves.toMatchObject({ outcome: "cancelled" });
+    expect(session.prompt).not.toHaveBeenCalled();
+  });
+
+  it("classifies a final aborted model response as cancelled", async () => {
+    const { session } = createSession("unused");
+    session.prompt = vi.fn(async () => {
+      session.messages.push({ role: "assistant", content: [], stopReason: "aborted" });
+    });
+    const { sub } = makeSubagentSession(session);
+    await expect(sub.runTurnLoop("go", DEFAULT_LIMITS)).resolves.toMatchObject({ outcome: "cancelled" });
   });
 
   it("prepends parentContext only to the fresh prompt", async () => {
@@ -335,6 +399,60 @@ describe("SubagentSession — delegate methods", () => {
   });
 });
 
+describe("SubagentSession — persisted close boundary", () => {
+  function leasedSession() {
+    const { session, calls } = createSession("X");
+    const release = vi.fn(() => { calls.push("release"); });
+    const appendCustomEntry = vi.fn((_type: string, _data: unknown) => { calls.push("checkpoint"); return "close-entry"; });
+    const checkpointManager = {
+      getSessionId: () => "child-session-default", getSessionFile: () => "/sessions/child.jsonl",
+      getCwd: () => "/project", getLeafId: () => "boundary", appendCustomEntry,
+    };
+    const { sub } = makeSubagentSession(session, { lease: { path: "/lease", token: "owner", release }, checkpointManager });
+    const receipt = { parentId: "parent", parentFile: "/parent.jsonl", terminalEntryId: "terminal",
+      agentId: "agent", agentType: "Explore", childSessionId: "child-session-default", invocationIndex: 1,
+      isCurrent: () => true };
+    return { session, calls, sub, release, appendCustomEntry, receipt };
+  }
+
+  it("writes the private checkpoint after disposal, then releases ownership", async () => {
+    const { sub, calls, receipt, appendCustomEntry } = leasedSession();
+    await expect(sub.closeForRecovery(receipt)).resolves.toBe(true);
+    expect(calls).toEqual(["emit", "dispose", "checkpoint", "release"]);
+    expect(appendCustomEntry).toHaveBeenCalledWith("subagents:closed-private", expect.objectContaining({ terminalEntryId: "terminal", boundaryId: "boundary" }));
+    expect(appendCustomEntry.mock.calls[0][1]).not.toHaveProperty("isCurrent");
+  });
+
+  it("keeps ownership without a persisted parent terminal receipt", async () => {
+    const { sub, release, appendCustomEntry } = leasedSession();
+    await expect(sub.closeForRecovery(undefined)).resolves.toBe(false);
+    expect(release).not.toHaveBeenCalled();
+    expect(appendCustomEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps ownership when shutdown has not been confirmed", async () => {
+    const { sub, session, receipt, release, appendCustomEntry } = leasedSession();
+    session.extensionRunner.emit = vi.fn(async () => { throw new Error("shutdown failed"); });
+    await expect(sub.closeForRecovery(receipt)).resolves.toBe(false);
+    expect(release).not.toHaveBeenCalled();
+    expect(appendCustomEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps ownership if the parent branch changed", async () => {
+    const { sub, receipt, release, appendCustomEntry } = leasedSession();
+    await expect(sub.closeForRecovery({ ...receipt, isCurrent: () => false })).rejects.toThrow("identity changed");
+    expect(release).not.toHaveBeenCalled();
+    expect(appendCustomEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps ownership when checkpoint persistence fails", async () => {
+    const { sub, receipt, release, appendCustomEntry } = leasedSession();
+    appendCustomEntry.mockImplementation(() => { throw new Error("disk full"); });
+    await expect(sub.closeForRecovery(receipt)).rejects.toThrow("disk full");
+    expect(release).not.toHaveBeenCalled();
+  });
+});
+
 describe("SubagentSession — dispose", () => {
   it("disposes the session and emits disposed with the child session id", async () => {
     const { session } = createSession("X");
@@ -385,6 +503,37 @@ describe("SubagentSession — dispose", () => {
     expect(session.extensionRunner.emit).toHaveBeenCalledOnce();
     expect(session.dispose).toHaveBeenCalledOnce();
     expect(lifecycle.disposed).toHaveBeenCalledOnce();
+  });
+
+  it("only confirms cleanup after successful shutdown", async () => {
+    const { session } = createSession("X");
+    const { sub } = makeSubagentSession(session);
+    expect(sub.cleanupConfirmed).toBe(false);
+    await sub.dispose();
+    expect(sub.cleanupConfirmed).toBe(true);
+  });
+
+  it("does not confirm cleanup after a failed handler", async () => {
+    const { session } = createSession("X");
+    session.extensionRunner.emit = vi.fn(async () => { throw new Error("shutdown failed"); });
+    const { sub } = makeSubagentSession(session);
+    await sub.dispose();
+    expect(session.dispose).toHaveBeenCalledOnce();
+    expect(sub.cleanupConfirmed).toBe(false);
+  });
+
+  it("all concurrent disposal callers wait for the same teardown", async () => {
+    const { session } = createSession("X");
+    let finish!: () => void;
+    session.extensionRunner.emit = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const { sub } = makeSubagentSession(session);
+    const first = sub.dispose();
+    const second = sub.dispose();
+    expect(second).toBe(first);
+    expect(sub.cleanupConfirmed).toBe(false);
+    finish();
+    await second;
+    expect(sub.cleanupConfirmed).toBe(true);
   });
 
   it("guards re-entry before its first await, so concurrent disposes emit once", async () => {

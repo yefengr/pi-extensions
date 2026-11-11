@@ -552,7 +552,7 @@ describe("Subagent — stopQueued", () => {
 
 describe("Subagent — disposeSession", () => {
 	it("disposes the wrapped SubagentSession", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub();
 		record.subagentSession = asSubagentSession(stub);
 		await record.disposeSession();
@@ -560,7 +560,7 @@ describe("Subagent — disposeSession", () => {
 	});
 
 	it("resolves only after the child's teardown settles", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub();
 		const teardown = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
 		stub.dispose = vi.fn((): Promise<void> => teardown.promise);
@@ -579,7 +579,7 @@ describe("Subagent — disposeSession", () => {
 	});
 
 	it("swallows a failing teardown so the caller's cleanup continues", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub();
 		stub.dispose = vi.fn((): Promise<void> => Promise.reject(new Error("teardown failed")));
 		record.subagentSession = asSubagentSession(stub);
@@ -594,7 +594,7 @@ describe("Subagent — disposeSession", () => {
 
 describe("Subagent — releaseSession", () => {
 	it("disposes the wrapped session and clears it (isSessionReady false)", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub(createMockSession(), "/path/to/session.jsonl");
 		record.subagentSession = asSubagentSession(stub);
 		await record.releaseSession();
@@ -603,7 +603,7 @@ describe("Subagent — releaseSession", () => {
 	});
 
 	it("retains stable session identity after release", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		record.subagentSession = asSubagentSession(
 			createSessionStub(createMockSession(), "/path/to/session.jsonl", "stable-child"),
 		);
@@ -613,22 +613,22 @@ describe("Subagent — releaseSession", () => {
 	});
 
 	it("sets sessionReleased (default false)", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		expect(record.sessionReleased).toBe(false);
 		record.subagentSession = asSubagentSession(createSessionStub(createMockSession(), "/path/to/session.jsonl"));
 		await record.releaseSession();
 		expect(record.sessionReleased).toBe(true);
 	});
 
-	it("clears the session before awaiting teardown, so a racing sweep releases once", async () => {
-		const record = makeSubagent();
+	it("keeps the session visible until teardown completes and releases once", async () => {
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub(createMockSession(), "/path/to/session.jsonl");
 		const teardown = Promise.withResolvers<void>(); // eslint-disable-line @typescript-eslint/no-invalid-void-type -- Promise.withResolvers<void> is valid; rule does not allow void in generic fn call type args
 		stub.dispose = vi.fn((): Promise<void> => teardown.promise);
 		record.subagentSession = asSubagentSession(stub);
 
 		const first = record.releaseSession();
-		expect(record.isSessionReady()).toBe(false);
+		expect(record.isSessionReady()).toBe(true);
 		const second = record.releaseSession();
 
 		teardown.resolve();
@@ -637,7 +637,7 @@ describe("Subagent — releaseSession", () => {
 	});
 
 	it("is a no-op on a second release — does not re-dispose, keeps the captured outputFile", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub(createMockSession(), "/path/to/session.jsonl");
 		record.subagentSession = asSubagentSession(stub);
 		await record.releaseSession();
@@ -647,7 +647,7 @@ describe("Subagent — releaseSession", () => {
 	});
 
 	it("disposeSession after release is a no-op (session already cleared)", async () => {
-		const record = makeSubagent();
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub(createMockSession(), "/path/to/session.jsonl");
 		record.subagentSession = asSubagentSession(stub);
 		await record.releaseSession();
@@ -655,13 +655,14 @@ describe("Subagent — releaseSession", () => {
 		expect(stub.dispose).toHaveBeenCalledOnce();
 	});
 
-	it("swallows a failing teardown but still marks the session released", async () => {
-		const record = makeSubagent();
+	it("retains an unsafe session when teardown fails", async () => {
+		const record = makeSubagent({ phase: "terminal", outcome: "completed" });
 		const stub = createSessionStub(createMockSession(), "/path/to/session.jsonl");
 		stub.dispose = vi.fn((): Promise<void> => Promise.reject(new Error("teardown failed")));
 		record.subagentSession = asSubagentSession(stub);
 		await expect(record.releaseSession()).resolves.toBeUndefined();
-		expect(record.sessionReleased).toBe(true);
+		expect(record.sessionReleased).toBe(false);
+		expect(record.isSessionReady()).toBe(true);
 	});
 
 	it("is a no-op when no session was created (sessionReleased stays false)", async () => {
@@ -873,6 +874,39 @@ describe("Subagent.run() — error handling", () => {
 });
 
 describe("Subagent.run() — abort signal forwarding", () => {
+	it("does not prepare a workspace or create a session when already cancelled", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		const { factory } = createFactory();
+		const provider: WorkspaceProvider = { prepare: vi.fn(async () => undefined) };
+		const agent = makeSubagent({ execution: makeStubExecution({
+			createSubagentSession: factory,
+			getWorkspaceProvider: () => provider,
+			signal: controller.signal,
+		}) });
+		await agent.run();
+		expect(provider.prepare).not.toHaveBeenCalled();
+		expect(factory).not.toHaveBeenCalled();
+		expect(agent.outcome).toBe("cancelled");
+	});
+
+	it("does not create a session if cancellation occurs during workspace preparation", async () => {
+		const controller = new AbortController();
+		const { factory } = createFactory();
+		const provider: WorkspaceProvider = { prepare: vi.fn(async () => {
+			controller.abort();
+			return undefined;
+		}) };
+		const agent = makeSubagent({ execution: makeStubExecution({
+			createSubagentSession: factory,
+			getWorkspaceProvider: () => provider,
+			signal: controller.signal,
+		}) });
+		await agent.run();
+		expect(factory).not.toHaveBeenCalled();
+		expect(agent.outcome).toBe("cancelled");
+	});
+
 	it("wires the parent signal so aborting it cancels the run", async () => {
 		const parentController = new AbortController();
 		const { factory, stub } = createFactory();
@@ -1425,15 +1459,15 @@ describe("Subagent.run() — invocation timeout", () => {
 		await Promise.resolve();
 		expect(settled).toBe(false);
 
-		// Grace elapsed: the waiter is released and the session freed.
+		// Grace releases the waiter, but the underlying work still owns its session.
 		await vi.advanceTimersByTimeAsync(5_000);
 		await run;
 		expect(settled).toBe(true);
-		expect(agent.subagentSession).toBeUndefined();
-		expect(stub.dispose).toHaveBeenCalledOnce();
+		expect(agent.isSessionReady()).toBe(true);
+		expect(stub.dispose).not.toHaveBeenCalled();
 	});
 
-	it("rejects resume once the timeout released the session", async () => {
+	it("rejects resume while timed-out work has not stopped", async () => {
 		vi.useFakeTimers();
 		const { factory, stub } = createFactory();
 		stub.runTurnLoop.mockImplementation(() => new Promise<never>(() => {}));
@@ -1444,8 +1478,8 @@ describe("Subagent.run() — invocation timeout", () => {
 		await vi.advanceTimersByTimeAsync(5_000);
 		await run;
 
-		expect(agent.sessionReleased).toBe(true);
-		expect(agent.isSessionReady()).toBe(false);
-		await expect(agent.resume("more", RESUME_INVOCATION)).rejects.toThrow(/missing session/);
+		expect(agent.sessionReleased).toBe(false);
+		expect(agent.isSessionReady()).toBe(true);
+		await expect(agent.resume("more", RESUME_INVOCATION)).rejects.toThrow(/cleanup is pending|still settling/);
 	});
 });

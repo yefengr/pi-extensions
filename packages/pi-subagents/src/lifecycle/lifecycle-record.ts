@@ -133,16 +133,14 @@ function assertTerminal(phase: SubagentPhase, outcome: SubagentOutcome | undefin
 }
 
 /**
- * A terminal record may omit the session identity only when no session can
- * exist: failures before session creation, and never-started cancellations or
- * queue timeouts (the agent was stopped while still queued).
+ * A terminal record may omit the session identity for errors or cancellation
+ * before session creation was observed, and for a queue timeout. A late factory
+ * settlement remains a cleanup concern; it must not turn cancellation into a
+ * successful session-bearing invocation.
  */
 function allowsMissingSession(record: Subagent): boolean {
-	if (record.outcome === "error") return true;
-	return (
-		record.stoppedWhileQueued &&
-		(record.outcome === "cancelled" || record.outcome === "queue_timeout")
-	);
+	if (record.outcome === "error" || record.outcome === "cancelled") return true;
+	return record.stoppedWhileQueued && record.outcome === "queue_timeout";
 }
 
 function usageWithTotal(usage: Readonly<LifetimeUsage>): LifecycleUsageV3 {
