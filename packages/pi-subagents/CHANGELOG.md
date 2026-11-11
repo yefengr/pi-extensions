@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.0
+
 - Allow explicit background resume for live and safely reopened sessions through the existing queue, rejecting duplicate active resumes and isolating stale queue callbacks by invocation.
 - Share foreground progress updates across fresh runs and resumes, and add a query-only `timeout_seconds` limit to result waits (default 60 seconds, range 1–3600).
 - Report observed activity, current invocation turns, and last progress age consistently in queries, tool output, widgets, and optional service snapshots, without adding persisted lifecycle fields or inferring stalls.
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Classify final model errors and empty responses within the current invocation, check cancellation before initialization, and retain ownership while underlying work or cleanup remains unsettled.
 - Read saved v2/v3 results and transcripts from the current parent-session branch after in-memory records disappear, reporting incomplete history without starting a model request.
 - Add same-parent cold resume for v3 histories with a verified private close checkpoint and no ownership marker, preserving agent/session IDs, invocation sequence, and lifetime metrics. Old or abnormal histories remain query-only; public lifecycle v3 and service contracts stay unchanged.
+
+- Make persisted-result and session-lease tests portable across Windows and POSIX, and include Subagents in the Windows CI matrix.
 
 ## 0.3.0
 
