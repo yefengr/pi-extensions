@@ -9,6 +9,7 @@
 | [`@yefengr/pi-notify`](./packages/pi-notify) | Desktop notifications through native terminal OSC protocols, with no system notification helper | Published |
 | [`@yefengr/pi-monitor`](./packages/pi-monitor) | Background command monitoring with one-shot or continuous checks, notification-only or explained delivery | Published |
 | [`@yefengr/pi-task-efficiency`](./packages/pi-task-efficiency) | Task efficiency review with scope confirmation, deterministic metrics, and actionable suggestions | Published |
+| [`@yefengr/pi-task-status`](./packages/pi-task-status) | Model-maintained task status, progress, and automatic session names | Not yet published |
 | [`@yefengr/pi-subagents`](./packages/pi-subagents) | In-process subagent runtime with background execution, steering, resume, and lifecycle events | Published |
 | [`@yefengr/pi-worktree`](./packages/pi-worktree) | Managed Git worktrees, persistent session migration, and one-time task continuation | [npm](https://www.npmjs.com/package/@yefengr/pi-worktree) |
 
@@ -38,13 +39,14 @@ Naming is layered: the capability root stays fixed, while each layer uses the wo
 5. Event, record, and log namespace: `<capability>:*`; log paths use the capability as the directory name. Cross-package service keys use `@yefengr/pi-<capability>:service`, because `Symbol.for` requires global uniqueness.
 6. Skill: `<action>-<capability>`. The `pi-` package prefix never appears in a skill name.
 
-Every visible difference follows from these rules; there are no exceptions.
+New interfaces follow these rules. The migrated `task-status` package retains its existing tool and record names for compatibility with existing sessions.
 
 | Capability | Package | Command | Tool | Event / record | Skill |
 |---|---|---|---|---|---|
 | notify | `pi-notify` | `notify:*` | `notify_user` | `notify:*` | — |
 | monitor | `pi-monitor` | `monitor` | `monitor` | `.pi/logs/monitor` | `wait-monitor` |
 | task-efficiency | `pi-task-efficiency` | `task-efficiency` | `task_efficiency_*` | `task-efficiency:*` | `analyze-task-efficiency` |
+| task-status | `pi-task-status` | — | `update_task_status` | `task-status-state`, `task-status-session-name` | — |
 | subagents | `pi-subagents` | `subagents:*` | `subagent` | `subagents:*` | `orchestrate-subagents` |
 | worktree | `pi-worktree` | `worktree:*` | `worktree_*` | `worktree:message` | — |
 

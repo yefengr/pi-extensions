@@ -1,0 +1,53 @@
+{
+  "name": "@yefengr/pi-task-status",
+  "version": "0.1.0",
+  "description": "Model-maintained task status, progress, and session names for Pi",
+  "type": "module",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "license": "MIT",
+  "author": "yefengr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yefengr/pi-extensions.git",
+    "directory": "packages/pi-task-status"
+  },
+  "homepage": "https://github.com/yefengr/pi-extensions/tree/main/packages/pi-task-status#readme",
+  "bugs": {
+    "url": "https://github.com/yefengr/pi-extensions/issues"
+  },
+  "keywords": ["pi-package", "pi-extension", "task-status", "progress"],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": ["./index.ts"],
+    "skills": [],
+    "prompts": [],
+    "themes": []
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "prepublishOnly": "npm run typecheck && npm test"
+  },
+  "files": ["index.ts", "src", "README.md", "LICENSE"],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.5.1",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.1",
+    "@earendil-works/pi-tui": "1.5.1",
+    "@types/node": "22.20.5",
+    "typebox": "1.4.5",
+    "typescript": "6.0.3"
+  }
+}

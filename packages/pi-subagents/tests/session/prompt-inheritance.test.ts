@@ -66,6 +66,38 @@ describe("structured prompt inheritance", () => {
       .toBe("prefix shared resource suffix\n\nshared resource");
   });
 
+  it.each(["/parent", "/child"])("drops only task_status without the child's tool at %s", (cwd) => {
+    const source: BuildSystemPromptOptions = {
+      ...parent, sections: { ...parent.sections, task_status: "parent task status" },
+      promptGuidelines: ["user guideline mentioning update_task_status"],
+      toolSnippets: { update_task_status: "parent snippet" },
+      toolGuidelines: { update_task_status: ["parent tool guideline"] },
+    };
+    const before = structuredClone(source);
+    const child: BuildSystemPromptOptions = {
+      cwd, selectedTools: ["read"], sections: { child: "child section", task_status: "stale child section" },
+      promptGuidelines: ["child guideline"], toolSnippets: { read: "fresh snippet" }, toolGuidelines: { read: ["fresh guideline"] },
+      appendSystemPrompt: parent.appendSystemPrompt,
+    };
+    const result = inheritPromptOptions(source, child, "identity", "/agent");
+    expect(result.sections).toEqual({ ...parent.sections, child: "child section", subagent_identity: "identity" });
+    expect(result.promptGuidelines).toEqual(["user guideline mentioning update_task_status", "child guideline"]);
+    expect(result.selectedTools).toEqual(["read"]);
+    expect(result.toolSnippets).toEqual(child.toolSnippets);
+    expect(result.toolGuidelines).toEqual(child.toolGuidelines);
+    expect(source).toEqual(before);
+    expect(child.sections?.task_status).toBe("stale child section");
+  });
+
+  it("omits task_status when no tools are selected and retains it when the child has the tool", () => {
+    const source = { ...parent, sections: { task_status: "inherited instructions" } };
+    expect(inheritPromptOptions(source, { cwd: "/parent" }, "identity", "/agent").sections?.task_status).toBeUndefined();
+    const child = { cwd: "/parent", selectedTools: ["update_task_status"] };
+    expect(inheritPromptOptions(source, child, "identity", "/agent").sections?.task_status).toBe("inherited instructions");
+    expect(inheritPromptOptions(source, { ...child, sections: { task_status: "fresh instructions" } }, "identity", "/agent").sections?.task_status)
+      .toBe("fresh instructions");
+  });
+
   it("rejects opaque forced prompts even when empty", () => {
     expect(() => inheritPromptOptions({ ...parent, forceSystemPrompt: "" }, { cwd: "/child" }, "role", "/agent"))
       .toThrow("opaque forceSystemPrompt");

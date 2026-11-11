@@ -16,6 +16,7 @@ on:
           - "@yefengr/pi-monitor"
           - "@yefengr/pi-subagents"
           - "@yefengr/pi-task-efficiency"
+          - "@yefengr/pi-task-status"
           - "@yefengr/pi-worktree"
 
 permissions:

@@ -28,6 +28,8 @@ export function inheritPromptOptions(
     [...inheritedFiles, ...(child.contextFiles ?? [])].map((file) => [resolve(file.path), { ...file }]),
   );
   const sections = { ...parent.sections, ...child.sections };
+  // Task Status owns this section; its guidance is only valid with the child's tool.
+  if (!child.selectedTools?.includes("update_task_status")) delete sections.task_status;
   // Explicit custom sections are user text, including sections named tools/rules/cwd.
   sections.subagent_identity = identity.trim();
   return {

@@ -203,6 +203,8 @@ What this does and does not do:
 This key is hand-edited in the shared global or project `subagents.json`; `/subagents:settings` does not expose it, but it is preserved when you change other runtime settings there. It is unrelated to personal `agentEnabled` overrides.
 An absent or empty list reproduces the default behavior, in which children inherit every parent extension.
 
+For [Task Status](../../pi-task-status/README.md), exclude its exact installed source to keep overall task state and session naming in the parent. A child without `update_task_status` also omits the inherited extension-owned `task_status` prompt section; its tool snippets and tool guidelines come from the child's own tool registry. This prompt cleanup does not prevent extension loading, so package exclusion is still required. Other explicit sections and custom prompt guidelines retain their normal inheritance behavior.
+
 ### Abort on interrupt
 
 By default, pressing ESC to interrupt the parent agent also aborts every subagent.

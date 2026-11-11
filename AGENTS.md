@@ -9,6 +9,7 @@
 | `packages/pi-notify` | 通过终端 OSC 协议发送本地通知 |
 | `packages/pi-monitor` | 后台命令监听与一次性/持续检查 |
 | `packages/pi-task-efficiency` | 任务效率复盘、固定范围确认与确定性指标 |
+| `packages/pi-task-status` | 模型维护任务状态、进度与会话自动命名 |
 | `packages/pi-subagents` | 进程内子代理运行时，含后台执行、steering、resume 与生命周期事件 |
 | `packages/pi-worktree` | Pi 管理的 Git 工作树、持久会话迁移与自动续跑 |
 | `scripts/` | 发布计划、产物校验、GitHub Release 和文档链接检查 |
