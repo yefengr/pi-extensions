@@ -111,7 +111,8 @@ describe("Task Status and Subagents SDK composition", () => {
       expect(excluded.session.getAllTools().map((tool) => tool.name)).not.toContain(TOOL_NAME);
       expect(excluded.session.getActiveToolNames()).toEqual(["read"]);
       expectNoTaskGuidance(childOptions);
-      expect(childOptions.sections).toEqual({ operator: "keep user section", subagent_identity: "excluded child" });
+      expect(childOptions.sections).toMatchObject({ operator: "keep user section" });
+      expect(childOptions.sections?.subagent_identity).toMatch(/^excluded child\n\nDirectly available tools this round: read\./);
       expect(childOptions.promptGuidelines).toEqual(["keep user guideline"]);
       expect(childOptions.toolSnippets).toEqual(childBase.toolSnippets);
       expect(childOptions.toolGuidelines).toEqual(childBase.toolGuidelines);

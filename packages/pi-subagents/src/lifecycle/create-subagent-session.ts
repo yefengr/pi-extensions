@@ -26,7 +26,7 @@ import { SubagentSession } from "#src/lifecycle/subagent-session";
 import { assertDeclaredTools, matchesTool, selectBuiltinExtensions } from "#src/session/builtin-extensions";
 import type { EnvInfo } from "#src/session/env";
 import type { ModelRegistry } from "#src/session/model-resolver";
-import { createPromptInheritanceExtension, inheritPromptOptions } from "#src/session/prompt-inheritance";
+import { createPromptInheritanceExtension, inheritPromptOptions, type ToolPromptSync } from "#src/session/prompt-inheritance";
 import type { CheckpointManager } from "#src/session/recovery-checkpoint";
 import { type AssemblerIO, assembleSessionConfig } from "#src/session/session-config";
 import type { SessionLease } from "#src/session/session-lease";
@@ -233,8 +233,12 @@ export async function createSubagentSession(
   // registered capabilities also prevent recreating built-ins suppressed by CLI.
   const extensionFactories = selectBuiltinExtensions(cfg.toolNames, { availableTools: snapshot.availableTools });
   let childAppendSources: string[] = [];
+  let syncToolPrompt: ToolPromptSync | undefined;
   if (snapshot.promptOptions) {
-    extensionFactories.push(createPromptInheritanceExtension(snapshot.promptOptions, cfg.systemPrompt, agentDir, () => childAppendSources));
+    extensionFactories.push(createPromptInheritanceExtension(
+      snapshot.promptOptions, cfg.systemPrompt, agentDir, () => childAppendSources,
+      (sync) => { syncToolPrompt = sync; },
+    ));
   }
   const loader = deps.io.createResourceLoader({
     cwd: cfg.effectiveCwd,
@@ -271,6 +275,15 @@ export async function createSubagentSession(
     resourceLoader: loader,
     thinkingLevel: cfg.thinkingLevel,
   });
+
+  if (snapshot.promptOptions) {
+    const transformContext = session.agent.transformContext;
+    session.agent.transformContext = async (messages, signal) => {
+      const transformed = transformContext ? await transformContext(messages, signal) : messages;
+      // The factory rebinds on reload; never retain an old extension API instance.
+      return syncToolPrompt?.(transformed, session.getCallableToolNames(), session.getActiveToolNames()) ?? transformed;
+    };
+  }
 
   subagentSession = new SubagentSession(session, {
     outputFile,
