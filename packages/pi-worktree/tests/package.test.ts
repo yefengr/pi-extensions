@@ -76,7 +76,7 @@ test("真实 tarball 在新路径可加载并实际执行打包创建器，保�
       "worktree:create", "worktree:list", "worktree:migrate", "worktree:remove", "worktree:switch",
     ]);
     assert.deepEqual([...extension.tools.keys()].sort(), ["worktree_create", "worktree_list", "worktree_remove"]);
-    assert.ok(extension.shortcuts.has("ctrl+alt+w"));
+    assert.equal(extension.shortcuts.has("ctrl+alt+w"), false);
     const create = extension.tools.get("worktree_create")!.definition;
     const ctx = { cwd: await realpath(repo), sessionManager: { getSessionFile: () => undefined } };
     const result = await create.execute("packed-create", {

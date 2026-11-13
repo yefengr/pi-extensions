@@ -30,7 +30,8 @@ assert.deepEqual(loaded.errors, []);
 const extension = loaded.extensions[0];
 const command = extension.commands.get("worktree:switch");
 const shortcut = extension.shortcuts.get("ctrl+alt+w");
-assert.ok(command && shortcut);
+assert.ok(command);
+assert.equal(shortcut, undefined);
 const messages = [];
 const dispatches = [];
 const notices = [];
@@ -41,10 +42,13 @@ let offered = [];
 let select = () => undefined;
 const statuses = new Map();
 const progress = [];
+let currentFile = sourceSession;
 const ctx = {
   hasUI: true,
   cwd: main, mode: "tui", isIdle: () => true, waitForIdle: async () => {},
-  sessionManager: { getSessionFile: () => sourceSession },
+  sessionManager: { getSessionFile: () => currentFile, getSessionDir: () => fixture,
+    getHeader: () => JSON.parse(readFileSync(currentFile, "utf8").split("\n")[0]),
+    getSessionId: () => JSON.parse(readFileSync(currentFile, "utf8").split("\n")[0]).id },
   ui: {
     setStatus(key, text) {
       if (text === undefined) statuses.delete(key);
@@ -60,8 +64,12 @@ const ctx = {
     switches++;
     assert.ok([...statuses.values()].some((text) => /正在切换到/.test(text)));
     const header = JSON.parse(readFileSync(file, "utf8").split("\n")[0]);
-    assert.equal(header.parentSession, sourceSession);
-    await options.withSession({ cwd: header.cwd, ui: ctx.ui, sendMessage: () => { throw new Error("手动切换不能续跑"); } });
+    assert.equal(header.parentSession, undefined);
+    const expected = header.cwd === main ? sourceSession : path.join(fixture, `${path.basename(header.cwd)}.jsonl`);
+    assert.equal(file, realpathSync.native(expected));
+    currentFile = file;
+    await options.withSession({ cwd: header.cwd, ui: ctx.ui, sessionManager: ctx.sessionManager,
+      sendMessage: () => { throw new Error("手动切换不能续跑"); } });
     ctx.cwd = header.cwd;
     return { cancelled: false };
   },
@@ -102,14 +110,12 @@ await extension.commands.get("worktree:migrate").handler(JSON.stringify({ repoPa
 assert.equal(switches, 3);
 assert.match(messages.pop(), /主工作区/);
 ctx.isIdle = () => false;
-await shortcut.handler(ctx);
 await command.handler("", ctx);
 assert.equal(dispatches.length, 0);
 assert.equal(switches, 3);
 assert.match(notices.at(-1), /本轮结束后/);
 ctx.isIdle = () => true;
-await shortcut.handler(ctx);
-assert.deepEqual(dispatches, [["/worktree:switch", { expandPromptTemplates: true }]]);
+assert.deepEqual(dispatches, []);
 ctx.mode = "rpc";
 await command.handler("", ctx);
 assert.match(messages.pop(), /选择列表/);
@@ -129,7 +135,7 @@ assert.equal(statuses.size, 0);
 for (const phase of ["正在加载工作树", "正在检查切换目标", "正在切换到", "正在检查迁移目标"]) {
   assert.ok(progress.some((text) => text.includes(phase)), phase);
 }
-console.log(JSON.stringify({ choices: offered, switches, shortcut: dispatches[0], notices }, null, 2));
+console.log(JSON.stringify({ choices: offered, switches, shortcut: "absent", notices }, null, 2));
 
 function addWorktree(name, owned, detached = false) {
   const target = path.join(repo, ".pi", "worktrees", name);
@@ -138,7 +144,12 @@ function addWorktree(name, owned, detached = false) {
     const gitDir = git(target, "rev-parse", "--absolute-git-dir").trim();
     writeFileSync(path.join(gitDir, "pi-worktree-manager.json"), JSON.stringify({ schemaVersion: 1, createdAt: new Date().toISOString() }));
   }
-  return realpathSync.native(target);
+  const canonical = realpathSync.native(target);
+  writeFileSync(path.join(fixture, `${name}.jsonl`), `${JSON.stringify({
+    type: "session", version: 3, id: `33333333-3333-7333-8333-${name.padEnd(12, "0")}`,
+    timestamp: "2026-08-12T00:00:00.000Z", cwd: canonical,
+  })}\n`);
+  return canonical;
 }
 function git(cwd, ...args) { return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }); }
 } finally {

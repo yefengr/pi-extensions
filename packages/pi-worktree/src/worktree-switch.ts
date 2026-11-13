@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { samePath } from "./worktree-paths.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { listWorktrees, resolveMigrationTarget, type CommandRunner } from "./core.ts";
-import { migratePersistentSession, type SessionForker } from "./session.ts";
+import { discoverWorkspaceSessions, restoreWorkspaceSession, workspaceSessionLabels, WorkspaceRestoreError } from "./workspace-sessions.ts";
 import { createWorktreeProgress, type WorktreeProgress } from "./worktree-progress.ts";
 
 export interface WorkspaceChoice {
@@ -35,7 +35,6 @@ export async function collectWorkspaceChoices(cwd: string, runner: CommandRunner
 export function registerWorktreeSwitch(
   pi: ExtensionAPI,
   runner: CommandRunner,
-  forker: SessionForker,
   withMutationLock: <T>(operation: () => Promise<T>) => Promise<T>,
   reportError: (error: unknown) => void,
   progress: WorktreeProgress = createWorktreeProgress(pi),
@@ -60,33 +59,37 @@ export function registerWorktreeSwitch(
         });
         const selectedPath = parsed?.worktreePath ?? await selectWorkspace(ctx, choices);
         if (!selectedPath) return;
-        await progress.run(ctx, "正在检查切换目标…", async (operation) => {
-          const target = await resolveMigrationTarget(choices[0].path, selectedPath, { runner, allowMainWorktree: true });
-          if (samePath(await realpath(ctx.cwd), target.worktreePath)) return;
-          operation.update(`正在切换到 ${path.basename(target.worktreePath)}…`);
-          await ctx.waitForIdle();
-          await withMutationLock(async () => {
-            const migration = await migratePersistentSession(
-              ctx, target.worktreePath,
-              forker,
-              `Pi 会话已切换到 ${target.worktreePath}\n分支：${target.record.branch ?? "detached HEAD"}`,
-            );
-            if (migration.status === "unavailable") ctx.ui.notify("当前会话未持久化，无法切换工作空间；原会话保持不变", "warning");
-          });
-        });
+        const target = await progress.run(ctx, "正在检查切换目标…", async () =>
+          resolveMigrationTarget(choices[0].path, selectedPath, { runner, allowMainWorktree: true }));
+        const currentCwd = await realpath(ctx.cwd);
+        const currentId = ctx.sessionManager.getSessionId();
+        if (samePath(currentCwd, target.worktreePath) && (!parsed?.sessionId || parsed.sessionId === currentId)) return;
+        const candidates = await progress.run(ctx, "正在加载工作空间历史…", async () =>
+          discoverWorkspaceSessions(target.worktreePath, ctx.sessionManager.getSessionDir(), ctx.sessionManager.getHeader()?.parentSession));
+        let selected = parsed?.sessionId ? candidates.find((session) => session.id === parsed.sessionId) : undefined;
+        if (parsed?.sessionId && !selected) throw new Error("sessionId 不属于目标工作空间的可恢复历史");
+        if (candidates.length === 0) {
+          ctx.ui.notify("目标工作空间没有可恢复的历史会话（需要有效的 cwd 与持久会话文件）", "warning");
+          return;
+        }
+        if (!selected && candidates.length === 1) selected = candidates[0];
+        if (!selected) {
+          if (ctx.mode !== "tui") throw new Error("目标工作空间有多个历史会话，请通过 JSON sessionId 指定完整会话 ID");
+          const labels = workspaceSessionLabels(candidates);
+          const choice = await ctx.ui.select("选择要恢复的会话", labels);
+          if (choice === undefined) return;
+          selected = candidates[labels.indexOf(choice)];
+        }
+        if (!selected || (samePath(currentCwd, target.worktreePath) && selected.id === currentId)) return;
+        const session = selected;
+        await ctx.waitForIdle();
+        await withMutationLock(() => progress.run(ctx, `正在切换到 ${path.basename(target.worktreePath)}…`, async () => {
+          await restoreWorkspaceSession(ctx, session, target.worktreePath);
+        }));
       } catch (error) {
-        reportError(error);
+        // 替换后旧运行时失效；验证错误由 withSession 中的新上下文显示。
+        if (!(error instanceof WorkspaceRestoreError && error.replaced)) reportError(error);
       }
-    },
-  });
-  pi.registerShortcut("ctrl+alt+w", {
-    description: "选择并切换工作空间",
-    handler(ctx) {
-      if (!ctx.isIdle()) {
-        ctx.ui.notify("代理正在运行，请在本轮结束后切换工作空间", "warning");
-        return;
-      }
-      pi.sendUserMessage("/worktree:switch", { expandPromptTemplates: true });
     },
   });
 }
@@ -96,14 +99,15 @@ async function selectWorkspace(ctx: ExtensionCommandContext, choices: WorkspaceC
   return choices.find((choice) => choice.label === selected)?.path;
 }
 
-function parseSwitchInput(args: string): { repoPath?: string; worktreePath: string } | undefined {
+function parseSwitchInput(args: string): { repoPath?: string; worktreePath: string; sessionId?: string } | undefined {
   if (!args.trim()) return undefined;
   let input: unknown;
   try { input = JSON.parse(args); } catch { throw new Error("命令参数必须是单个 JSON 对象；TUI 下可直接使用选择列表"); }
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("命令参数必须是 JSON 对象");
   const parsed = input as Record<string, unknown>;
-  if (Object.keys(parsed).some((key) => key !== "repoPath" && key !== "worktreePath")) throw new Error("/worktree:switch 仅接受 repoPath 和 worktreePath");
+  if (Object.keys(parsed).some((key) => !["repoPath", "worktreePath", "sessionId"].includes(key))) throw new Error("/worktree:switch 仅接受 repoPath、worktreePath 和 sessionId");
   if (typeof parsed.worktreePath !== "string" || !parsed.worktreePath.trim()) throw new Error("worktreePath 必须是非空字符串");
   if (parsed.repoPath !== undefined && (typeof parsed.repoPath !== "string" || !parsed.repoPath.trim())) throw new Error("repoPath 必须是非空字符串");
-  return { repoPath: (parsed.repoPath as string | undefined)?.trim(), worktreePath: parsed.worktreePath.trim() };
+  if (parsed.sessionId !== undefined && (typeof parsed.sessionId !== "string" || !parsed.sessionId.trim())) throw new Error("sessionId 必须是非空完整会话 ID");
+  return { repoPath: (parsed.repoPath as string | undefined)?.trim(), worktreePath: parsed.worktreePath.trim(), sessionId: parsed.sessionId as string | undefined };
 }

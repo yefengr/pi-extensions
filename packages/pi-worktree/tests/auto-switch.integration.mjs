@@ -10,11 +10,11 @@ import { pathToFileURL } from "node:url";
 const extension = process.env.EXTENSION;
 const piPackage = process.env.PI_PACKAGE;
 if (!extension || !piPackage) throw new Error("缺少 EXTENSION 或 PI_PACKAGE");
-const fixture = mkdtempSync(path.join(tmpdir(), "worktree-auto-switch-e2e-"));
+const fixture = realpathSync.native(mkdtempSync(path.join(tmpdir(), "worktree-auto-switch-e2e-")));
 const repo = path.join(fixture, "repo");
 const agentDir = path.join(fixture, "agent");
 const sessionDir = path.join(fixture, "sessions");
-const sourceSession = path.join(fixture, "source.jsonl");
+const sourceSession = path.join(sessionDir, "source.jsonl");
 process.env.PI_CODING_AGENT_DIR = agentDir;
 process.env.PI_CODING_AGENT_SESSION_DIR = sessionDir;
 const targetName = "auto-e2e";
@@ -136,15 +136,16 @@ async function main() {
   assert.ok(footerAfterAuto.includes(await footerCwd(targetCwd)), `默认状态栏未显示目标目录：${footerAfterAuto}`);
   assert.ok(footerAfterAuto.includes(targetBranch));
 
-  // JSON 仅用于 RPC 自动验证；用户入口由无参命令/快捷键打开选择列表。
+  // JSON 用于 RPC 自动验证；手动入口通过无参命令打开选择列表。
   await rpc.request("prompt", { message: `/worktree:switch ${JSON.stringify({
     repoPath: sourceCwd, worktreePath: sourceCwd,
   })}` });
   const back = await rpc.request("get_state");
-  assert.notEqual(back.data.sessionFile, migratedFile, "无法从工作树返回主工作区");
+  assert.equal(back.data.sessionFile, sourceSession, "返回必须恢复原会话文件，而非 fork");
+  assert.equal(back.data.sessionId, "33333333-3333-7333-8333-333333333333");
   const backHeader = jsonLines(back.data.sessionFile)[0];
   assert.equal(realpathSync.native(backHeader.cwd), sourceCwd);
-  assert.equal(backHeader.parentSession, migratedFile);
+  assert.equal(backHeader.parentSession, undefined);
   const footerAfterBack = await renderFooter(back.data.sessionFile, "main");
   assert.ok(footerAfterBack.includes(await footerCwd(sourceCwd)));
   assert.equal(requests.length, 3, "手动切换不应触发模型");
@@ -152,7 +153,7 @@ async function main() {
     repoPath: sourceCwd, worktreePath: sourceCwd,
   })}` });
   const unchanged = await rpc.request("get_state");
-  assert.equal(unchanged.data.sessionFile, back.data.sessionFile, "选择当前工作区不应重复 fork");
+  assert.equal(unchanged.data.sessionFile, back.data.sessionFile, "选择当前工作区应保持原会话");
   console.log(JSON.stringify({
     result: "passed", modelRequests: requests.length, automaticContinuation: true,
     builtInToolCwd: "target worktree", footerAfterAuto, footerAfterBack,

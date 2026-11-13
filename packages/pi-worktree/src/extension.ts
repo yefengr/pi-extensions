@@ -90,9 +90,7 @@ export default function (pi: ExtensionAPI) {
   let mutationInProgress = false;
   const handoff = createSessionHandoff(pi);
   const progress = createWorktreeProgress(pi);
-  registerWorktreeSwitch(pi, runner,
-    { forkFrom: (source, target) => SessionManager.forkFrom(source, target) },
-    withMutationLock, (error) => reportCommandError(pi, error), progress);
+  registerWorktreeSwitch(pi, runner, withMutationLock, (error) => reportCommandError(pi, error), progress);
 
   pi.registerCommand(CREATE_COMMAND, {
     description: "创建并初始化由 Pi 管理的工作树，随后迁移持久会话",
