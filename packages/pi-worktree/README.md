@@ -1,6 +1,6 @@
 # @yefengr/pi-worktree
 
-Create and manage Git linked worktrees from Pi, move the current persistent session into them, and continue the original task in the new working directory. Switching uses Pi's native session replacement and footer; it does not change the old process's working directory or install a custom status bar.
+Create and manage Git linked worktrees from Pi, resume an existing workspace's saved session, or move the current persistent session into a new worktree and continue the original task. Switching and migration use Pi's native session replacement and footer; they do not change the old process's working directory or install a custom status bar.
 
 ## Requirements and installation
 
@@ -23,12 +23,12 @@ Uninstalling the extension does not delete worktrees, branches, or sessions.
 | Command | Action |
 |---|---|
 | `/worktree:create` | Collect a name, mode, and Git references, create the worktree, then migrate the persistent session |
-| `/worktree:switch` | Select the current repository's main workspace or a Pi-managed worktree |
+| `/worktree:switch` | Resume a saved session in the current repository's main workspace or a Pi-managed worktree |
 | `/worktree:migrate` | Migrate the session to an existing Pi-managed linked worktree |
 | `/worktree:list` | List Pi-managed worktrees for the repository, newest first |
 | `/worktree:remove` | Select one or more worktrees, confirm the scope, and remove them safely |
 
-**Ctrl+Alt+W** opens the same workspace selector as `/worktree:switch`. Switching is available only when the agent is idle. Cancelling the selector does nothing, selecting the exact current directory is a no-op, and switching manually never requests an extra model turn. Pi's native footer reflects the replacement session's actual directory and branch.
+Switching is available only when the agent is idle. It restores the selected workspace's saved session, including its original ID and conversation, without copying the current conversation or requesting an extra model turn. Selecting the exact current directory is a no-op unless a different session is explicitly selected. Pi's native footer reflects the restored session's actual directory and branch. The extension no longer registers **Ctrl+Alt+W**; use `/worktree:switch` to open the workspace selector.
 
 Commands without arguments use native Pi dialogs in TUI mode. For scripted/RPC use, pass a single JSON object. `repoPath` defaults to the session's current directory; TUI mode asks for it if that directory is outside a Git repository.
 
@@ -41,6 +41,18 @@ Commands without arguments use native Pi dialogs in TUI mode. For scripted/RPC u
 ```
 
 The paths above are placeholders: use the actual path returned by creation or listing. Only `worktree:switch` can return to the main workspace; `worktree:migrate` accepts managed linked worktrees only.
+
+### Resume workspace sessions
+
+After selecting a workspace, `/worktree:switch` opens its only valid saved session directly. If several sessions exist, TUI mode shows a second selector ordered by recent conversation activity, with the session name or first-message summary, recent activity time, and a short session ID. Cancelling either selector leaves the current session open. A workspace with no recoverable saved session produces a notice; switching does not create or migrate a session as a fallback.
+
+Scripted/RPC calls can select an exact saved session with `sessionId`:
+
+```text
+/worktree:switch {"worktreePath":"/absolute/path/to/worktree","sessionId":"full-session-id"}
+```
+
+Outside TUI mode, multiple candidates require `sessionId`. The selected session must belong to the target workspace. A missing or invalid file fails recovery rather than opening a blank session. Discovery includes the target's default session directory, the active session storage directory, and the directory of the current session's native parent when present, with canonical-path matching. The parent reference lets a migrated session find its original custom directory even after Pi changes the active storage directory. Arbitrary historical custom directories outside these sources are not searched. An empty or temporary current session can resume an existing saved target session.
 
 ### Operation feedback
 
@@ -80,6 +92,12 @@ The tool result includes `migrationStatus` (`scheduled` or `unavailable`), a rec
 
 Migration forks the existing persistent session into the target directory, preserving the source as its parent. It is not a second session-state system. The original session file is not rewritten to pretend it ran in another directory.
 
+### Known migration limitation: a new session has not been saved yet
+
+Deferred: `/worktree:migrate` and creation followed by migration can fail with `Cannot fork: source session file is empty or invalid` when the current persistent session has only setup records and no user or assistant message. Pi allocates a session path before creating the file, but migration currently treats that path as a readable source. The same error can therefore mean that the source file does not exist. The target worktree remains available.
+
+For migration, send an ordinary message in the source session, wait for the response to finish, and retry `/worktree:migrate` against the existing worktree. Do not recreate the worktree. This source-persistence case is recorded for a later migration fix; workspace session recovery through `/worktree:switch` does not require a saved source file.
+
 ## Ownership and safe removal
 
 Only Git-registered worktrees under the Pi worktree root with a valid Pi ownership marker are listed or removed. The marker remains **`pi-worktree-manager.json` in the worktree's Git administrative directory**, with `schemaVersion: 1` and an ISO creation time. This persistent format is intentionally unchanged so existing managed worktrees remain recognized; do not rename the marker.
@@ -90,7 +108,7 @@ Batch removal confirms the selected paths and scope, rechecks targets after conf
 
 ## Migration from the local extension
 
-The old `worktree-create`, `worktree-switch`, `worktree-migrate`, `worktree-list`, and `worktree-remove` commands are replaced by the colon-separated commands above; no old aliases are registered. Model tools and Ctrl+Alt+W remain unchanged. New extension messages use `worktree:message`; Pi can still read old session messages without a conversion step. Disable the old local extension when enabling this package to avoid duplicate tools and shortcuts.
+The old `worktree-create`, `worktree-switch`, `worktree-migrate`, `worktree-list`, and `worktree-remove` commands are replaced by the colon-separated commands above; no old aliases are registered. Model tools remain available, and workspace selection uses `/worktree:switch` without a registered shortcut. New extension messages use `worktree:message`; Pi can still read old session messages without a conversion step. Disable the old local extension when enabling this package to avoid duplicate tools.
 
 ## Development
 

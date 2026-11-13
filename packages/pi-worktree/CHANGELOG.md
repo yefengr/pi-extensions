@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- Make `/worktree:switch` restore an existing workspace session with its original identity and conversation instead of copying the current session. Offer a session selector when several histories exist and an explicit `sessionId` for scripted calls.
+- Remove the Ctrl+Alt+W shortcut; workspace selection remains available through `/worktree:switch`.
+- Document the deferred migration failure when a newly allocated source session path has not yet been saved to disk.
+
 ## 0.2.0
 
 - Add native Windows 10/11 support for worktree creation, switching, migration, listing, and removal through Node.js APIs and Git argv calls, with no Shell creator or extra runtime dependency.

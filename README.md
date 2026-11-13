@@ -11,7 +11,7 @@
 | [`@yefengr/pi-task-efficiency`](./packages/pi-task-efficiency) | Task efficiency review with scope confirmation, deterministic metrics, and actionable suggestions | Published |
 | [`@yefengr/pi-task-status`](./packages/pi-task-status) | Model-maintained task status, progress, and automatic session names | Not yet published |
 | [`@yefengr/pi-subagents`](./packages/pi-subagents) | In-process subagent runtime with background execution, steering, resume, and lifecycle events | Published |
-| [`@yefengr/pi-worktree`](./packages/pi-worktree) | Managed Git worktrees, persistent session migration, and one-time task continuation | [npm](https://www.npmjs.com/package/@yefengr/pi-worktree) |
+| [`@yefengr/pi-worktree`](./packages/pi-worktree) | Managed Git worktrees, saved workspace sessions, persistent session migration, and one-time task continuation | [npm](https://www.npmjs.com/package/@yefengr/pi-worktree) |
 
 ## Install
 
