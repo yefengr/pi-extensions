@@ -813,7 +813,7 @@ Issue #22 (parent-session resolution) has been closed; the feature and cross-pac
 
 ## Relationship with upstream
 
-`@yefengr/pi-subagents` starts from the verified `@gotgenes/pi-subagents@19.3.4` baseline and is maintained independently in agent-tools. That baseline is itself a hard fork of [tintinweb/pi-subagents]. Exact provenance and the local import policy live in [`../../UPSTREAM.md`](../../UPSTREAM.md).
+`@yefengr/pi-subagents` starts from the verified `@gotgenes/pi-subagents@19.3.4` baseline and is maintained independently in agent-tools. That baseline is itself a hard fork of [tintinweb/pi-subagents]. Exact provenance and the local import policy live in [`UPSTREAM.md`](https://github.com/yefengr/pi-extensions/blob/main/packages/pi-subagents/UPSTREAM.md).
 
 The historical phase records and issue references below describe the imported baseline. Future upstream fixes may be evaluated as references, but this package does not track an upstream branch or accept unverified latest-HEAD replacement.
 

@@ -1,6 +1,6 @@
 {
   "name": "@yefengr/pi-subagents",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "exports": {
     ".": {
@@ -22,8 +22,7 @@
     "skills",
     "CHANGELOG.md",
     "LICENSE",
-    "README.md",
-    "UPSTREAM.md"
+    "README.md"
   ],
   "imports": {
     "#src/*": "./src/*",
