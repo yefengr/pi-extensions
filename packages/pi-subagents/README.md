@@ -2,7 +2,7 @@
 
 [yefengr](https://github.com/yefengr) maintains this [Pi](https://pi.dev) subagent package. It provides an in-process subagent runtime with foreground and background execution, steering, resume, session inspection, lifecycle events, and cross-extension type contracts.
 
-The local baseline comes from `@gotgenes/pi-subagents@19.3.4` and has since evolved independently in this repository. See [`UPSTREAM.md`](./UPSTREAM.md) for the exact source, verification records, import boundaries, and local adaptations. Historical differences from the original project and `tintinweb/pi-subagents` are kept in [Comparison with upstream](./docs/comparison-with-upstream.md).
+The local baseline comes from `@gotgenes/pi-subagents@19.3.4` and has since evolved independently in this repository. See [`UPSTREAM.md`](https://github.com/yefengr/pi-extensions/blob/main/packages/pi-subagents/UPSTREAM.md) for the exact source, verification records, import boundaries, and local adaptations. Historical differences from the original project and `tintinweb/pi-subagents` are kept in [Comparison with upstream](./docs/comparison-with-upstream.md).
 
 ## Features
 
@@ -392,7 +392,7 @@ This extension is a minimal, composable core: it owns agent spawning, execution,
 
 ## Relationship to upstream
 
-This package starts from the verified `@gotgenes/pi-subagents@19.3.4` source baseline and is maintained independently in this repository. That source was itself a hard fork of [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents). See [`UPSTREAM.md`](./UPSTREAM.md) for the exact tag, commit, integrity evidence and import policy.
+This package starts from the verified `@gotgenes/pi-subagents@19.3.4` source baseline and is maintained independently in this repository. That source was itself a hard fork of [`tintinweb/pi-subagents`](https://github.com/tintinweb/pi-subagents). See [`UPSTREAM.md`](https://github.com/yefengr/pi-extensions/blob/main/packages/pi-subagents/UPSTREAM.md) for the exact tag, commit, integrity evidence and import policy.
 
 The imported comparison and decision documents describe the state of the `19.3.4` baseline. They are retained as design history and must not be treated as a promise to track later third-party releases.
 
