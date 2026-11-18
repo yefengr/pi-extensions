@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## 0.4.3
+
+- Clarify that implementation agents handle bounded investigation within a frozen contract, while independent contract diagnosis returns evidence for the parent to finalize the implementation contract.
+- Keep high-risk decisions and final acceptance with the parent; allow implementation to be delegated once decisions and contracts are frozen and risks can be isolated.
+
 ## 0.4.2
 
 - Remove imported upstream changelog entries so Pi only detects this package's releases and stops showing upstream updates on every startup.
