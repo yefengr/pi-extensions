@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MonitorEngine } from "../src/engine.ts";
-import { MAX_RECENT_TASKS } from "../src/constants.ts";
+import { MAX_PENDING_BATCHES, MAX_RECENT_TASKS } from "../src/constants.ts";
 import type { CheckResult, EngineOptions, MonitorRecord } from "../src/types.ts";
 import { definition, eventually } from "./helpers.ts";
 
@@ -47,7 +47,8 @@ test("checker errors and throws retry with backoff then pause, not complete", as
   e.add(definition({ mode: "once", intervalMs: 5 }));
   await eventually(() => e.get("task-1")?.status === "paused");
   assert.equal(e.get("task-1")?.failures, 2);
-  assert.equal(e.get("task-1")?.pending.length, 0);
+  assert.equal(e.get("task-1")?.pending.length, 1);
+  assert.deepEqual(e.get("task-1")?.pending[0].statusChange, { status: "paused", reason: "连续 2 次检查失败，请检查命令后恢复", lastError: "offline" });
   assert.equal(calls, 2);
 });
 
@@ -73,7 +74,9 @@ test("deadline during check cancels and discards late results", async (t) => {
   assert.equal(aborted, true);
   finish(ok(["late"]));
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(e.get("task-1")?.pending.length, 0);
+  assert.equal(e.get("task-1")?.pending.length, 1);
+  assert.equal(e.get("task-1")?.pending[0].statusChange?.status, "expired");
+  assert.deepEqual(e.get("task-1")?.pending[0].events, []);
 });
 
 test("pause/resume cannot overlap an old cancellation still draining", async (t) => {
@@ -188,6 +191,48 @@ test("terminal task cache is bounded while active tasks remain retained", (t) =>
   assert.equal(e.get("active")?.status, "running");
   assert.equal(e.get("retired-0"), undefined);
   assert.equal(e.get(`retired-${MAX_RECENT_TASKS + 7}`)?.status, "stopped");
+});
+
+test("status outbox is bounded, reserves expiry, and preserves batches across reload", async (t) => {
+  let now = 1_000;
+  const { instance: e, saved } = engine({ now: () => now, maxFailures: 1, check: async () => ({ state: "error", summary: "offline" }) });
+  t.after(() => e.dispose());
+  e.add(definition({ deadlineAt: 100_000, intervalMs: 1 }));
+  for (let n = 1; n <= MAX_PENDING_BATCHES; n++) {
+    await eventually(() => e.get("task-1")?.status === "paused");
+    assert.equal(e.get("task-1")?.pending.length, n);
+    if (n < MAX_PENDING_BATCHES) e.resume("task-1");
+  }
+  assert.throws(() => e.resume("task-1"), /积压/);
+  const snapshot = e.records;
+  const { instance: reload } = engine({ now: () => now });
+  t.after(() => reload.dispose());
+  reload.restore(snapshot, () => true);
+  assert.deepEqual(reload.get("task-1")?.pending, snapshot[0].pending);
+  now = 100_000;
+  e.resume("task-1");
+  const expired = e.get("task-1")!;
+  assert.equal(expired.status, "expired");
+  assert.equal(expired.pending.length, MAX_PENDING_BATCHES + 1);
+  assert.equal(new Set(expired.pending.map((batch) => batch.id)).size, MAX_PENDING_BATCHES + 1);
+  assert.equal(saved.at(-1)?.pending.at(-1)?.statusChange?.status, "expired");
+  assert.equal(expired.pending[0].statusChange?.status, "paused");
+});
+
+test("expiry on add and restore is atomic and historical terminals are not backfilled", (t) => {
+  const { instance: e, saved } = engine({ now: () => 100 }); t.after(() => e.dispose());
+  e.add(definition({ deadlineAt: 99 }));
+  assert.equal(saved[0].status, "expired");
+  assert.equal(saved[0].pending[0].statusChange?.status, "expired");
+  const { instance: reload } = engine({ now: () => 100 }); t.after(() => reload.dispose());
+  reload.restore(e.records, () => true);
+  assert.deepEqual(reload.records, e.records);
+  const { instance: old } = engine({ now: () => 100 }); t.after(() => old.dispose());
+  old.restore([{ ...e.records[0], pending: [], lastResult: undefined }], () => true);
+  assert.equal(old.records[0].pending.length, 0);
+  const { instance: due } = engine({ now: () => 100 }); t.after(() => due.dispose());
+  due.restore([{ ...e.records[0], status: "running", pending: [], lastResult: undefined }], () => true);
+  assert.equal(due.records[0].pending.length, 1);
 });
 
 test("dispose ignores late results and state snapshots cannot mutate internals", async () => {

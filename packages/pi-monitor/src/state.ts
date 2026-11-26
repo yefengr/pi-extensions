@@ -18,12 +18,23 @@ function isRecord(value: any, owner: string): value is MonitorRecord {
   if (value.intervalMs <= 0 || value.timeoutMs <= 0 || value.failures < 0) return false;
   if (value.deadlineAt !== undefined && (typeof value.deadlineAt !== "number" || !Number.isFinite(value.deadlineAt))) return false;
   if (!Array.isArray(value.seenIds) || value.seenIds.length > MAX_SEEN_IDS || value.seenIds.some((id: unknown) => typeof id !== "string")) return false;
-  if (!Array.isArray(value.pending) || value.pending.length > MAX_PENDING_BATCHES) return false;
+  if (!Array.isArray(value.pending) || value.pending.length > MAX_PENDING_BATCHES * 2 + 1) return false;
+  if (value.pending.filter((batch: any) => !batch?.statusChange).length > MAX_PENDING_BATCHES ||
+      value.pending.filter((batch: any) => batch?.statusChange).length > MAX_PENDING_BATCHES + 1) return false;
   try {
     if (value.cursor !== undefined) parseCheckResult(JSON.stringify({ state: "ok", events: [], cursor: value.cursor }));
     for (const batch of [...value.pending, ...(value.lastResult ? [value.lastResult] : [])]) {
       if (!batch || batch.taskId !== value.id || typeof batch.id !== "string" || !Number.isFinite(batch.checkedAt)) return false;
       parseCheckResult(JSON.stringify({ state: "ok", events: batch.events }));
+      if (batch.statusChange !== undefined) {
+        const change = batch.statusChange;
+        if (!change || typeof change !== "object" || Array.isArray(change) ||
+            Object.keys(change).some((key) => !["status", "reason", "lastError"].includes(key)) ||
+            !["paused", "expired"].includes(change.status) || typeof change.reason !== "string" ||
+            !change.reason.trim() || change.reason.length > 1_000 ||
+            (change.lastError !== undefined && (typeof change.lastError !== "string" || change.lastError.length > 1_000)) ||
+            batch.events.length !== 0) return false;
+      }
     }
     return true;
   } catch { return false; }

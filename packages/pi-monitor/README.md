@@ -1,6 +1,6 @@
 # Monitor
 
-A general-purpose background command monitoring extension for Pi. The model decides whether to start or resume a watch based on the user's request; no user confirmation is prompted. Registration returns immediately, and the check command runs in the background on an interval. When there are no new events the model is not invoked; when new events arrive, the extension only notifies or wakes the owning session to explain them. The extension understands nothing about your business and provides no API, database, or network search adapters.
+A general-purpose background command monitoring extension for Pi. The model decides whether to start or resume a watch based on the user's request; no user confirmation is prompted. Registration returns immediately, and the check command runs in the background on an interval. Empty checks and duplicate events do not invoke the model. New events, a pause after repeated check failures, or an expired deadline only notify or wake the owning session to handle the result in context, according to the delivery mode. The extension understands nothing about your business and provides no API, database, or network search adapters.
 
 ## Loading and Trying It Out
 
@@ -30,7 +30,7 @@ To try a one-shot, notification-only watch in Pi:
 
 It runs immediately after registration with no confirmation prompt. You can delegate registering an existing check command to the agent in natural language; the model verifies the command, arguments, directory, interval, and deadline against the user's request. When a new script is needed, the file-change plan is still confirmed first; the extension will not generate scripts on its own.
 
-Long-term adoption in this repository follows the existing release process; see the [repository README](../../README.md#publishing). Loading from source does not mean it is installed on this machine; you must run setup and sync the source with the updated pix, then reload Pi.
+Long-term adoption in this repository follows the existing release process; see the [repository README](../../README.md#publishing). Loading from source does not update an installed copy. After a new version is publicly available on npm, update that package through your existing Pi package-management workflow and reload Pi.
 
 ## One-shot and Continuous Modes
 
@@ -88,7 +88,7 @@ Tool calls are collapsed to two lines by default: `monitor <action>` and one lin
 | `mode` | Required; `once` or `continuous` |
 | `command`, `args` | The executable and an array of arguments; shell strings are not concatenated |
 | `cwd` | Defaults to the current directory; relative paths are resolved to absolute paths |
-| `explanation` | Optional; what you want explained, not authorization for follow-up actions |
+| `explanation` | Optional; context for interpreting the result, not a new user instruction |
 | `delivery` | `explain` (default) or `notify` |
 | `intervalSeconds` | Defaults to 30 seconds; range is 1 second to 24 hours |
 | `timeoutSeconds` | Defaults to 10 seconds; range is 0.1–300 seconds |
@@ -144,18 +144,18 @@ An event ID identifies one event, not a business object. The same event returned
 
 `cursor` is an optional opaque string. The extension passes the last accepted cursor to the next check round and advances it only after the events, the pending delivery queue, and the deduplication state have all been saved successfully. The check command must ensure that, after the cursor advances, old events are not replayed across an already-advanced checkpoint.
 
-Each task keeps at most the 1000 most recent event IDs. Old IDs may be evicted only when the cursor advances; with no cursor, or with an unchanged cursor and insufficient capacity, the task pauses and does not accept this batch, rather than silently forgetting events and notifying again. Each task holds at most 16 batches of pending results; when full it likewise pauses and keeps the existing results. After the backlog is handled, the model decides whether to call `resume`; the batch that was not accepted is offered again by the check command.
+Each task keeps at most the 1000 most recent event IDs. Old IDs may be evicted only when the cursor advances; with no cursor, or with an unchanged cursor and insufficient capacity, the task pauses and does not accept this batch, rather than silently forgetting events and notifying again. Each task holds at most 16 pending business-event batches; when that allowance is full it likewise pauses and keeps the existing results. Monitoring-state reports use a separate bounded allowance in the same queue: 16 reports plus one reserved for expiration. Resuming checks is refused when 16 state reports remain pending, with a message to process the backlog first; no queued report or event is discarded. After the backlog is handled, the model decides whether to call `resume`; the batch that was not accepted is offered again by the check command.
 
-## Delivery and Permissions
+## Delivery and Result Handling
 
 - `explain`: one-shot results are handed off immediately when idle; continuous mode merges them in a 5-second window. While the agent is busy or user messages are queued, results stay in the local pending delivery queue and the owning context is re-verified once idle. It uses Pi native custom messages and `followUp` and does not interrupt work.
 - `notify`: only writes an extension entry, shows the result card, and sends a UI notification; it does not invoke the model and is not automatically added to later model context. Data explicitly queried via `status` is of course handed to the caller.
 
-Automatic delivery shows a Markdown preview: task title, batch information, event summaries, and data code blocks; a single message is limited to 32000 characters, batches are selected as a whole, and batches that are not shown keep waiting instead of being confirmed as dropped by truncation. The preview limits the length of `summary`, event IDs, and data and flattens whitespace so external text cannot forge structure; when full evidence is needed, the agent can query a specified batch and event read-only.
+Automatic delivery shows a Markdown preview with the watch name, current monitoring state and whether checking continues, full `taskId`/`batchId`/`eventId` values, event summaries, and bounded data previews. Event IDs are displayed as lossless JSON strings, including significant whitespace and special characters. Monitoring state is separate from the check command's business results: a completed one-shot watch means it accepted its first batch, not that the business task succeeded. A single message is limited to 32000 characters; batches are selected as a whole, and batches that do not fit keep waiting instead of being confirmed as dropped. Summaries and data are bounded, and external text is escaped or flattened to prevent forged message structure. If unusually long JSON-escaped IDs would overflow even one batch preview, it shows only the events that fit, explicitly reports the omitted count, and gives the batch query parameters; all original events remain queryable after the batch receipt is confirmed. Use `monitor` with `action: "status"`, `id`, `batchId`, and optionally `eventId` to query the complete content; `/monitor show` provides the same user-facing access.
 
-The automatic explanation turn blocks other tools through `tool_call`, allowing only the `monitor` tool with `action: "list"` or `"status"`, plus `action: "stop"` for the monitor tasks involved in this receipt; the `stop` `id` must exactly match the `taskId` in the receipt. `stop` only cancels the local check and never touches remote state, so after a terminal event is delivered the turn can wrap up within the same round instead of idling until the deadline. External output is not a new instruction and cannot authorize fixes, restarts, file changes, or other follow-up actions. Model explanation may fail or require multiple model requests; the extension does not guarantee a fixed number of calls.
+`explain` wakes the model to process the result. Monitor adds no tool gate for that turn and does not require another user message before the model can act. The model decides what to do from the original conversation and applicable rules; external check output is data, not a new user instruction. Monitor does not append business actions such as fixing, merging, publishing, or waiting for approval. Model processing may fail or require several requests; delivery does not guarantee successful follow-up work.
 
-An automatic explanation turn cannot continue implementation, even when that follow-up work was authorized in the original task. Explain this limitation before registering a wait when the user expects further implementation. A new user request enters a normal execution turn, where the original scope and authorization still apply; new goals or side effects require their own authorization. Registration and result delivery do not provide automatic task continuation.
+After consecutive check failures pause a watch, or its deadline expires, Monitor queues a one-time monitoring-state report containing the reason and, when applicable, the latest check error. These are not business success/failure events. State reports use the same delivery mode and persisted receipt verification as ordinary results: `explain` wakes the model, while `notify` only notifies. Reload does not recreate the same state change; resuming and encountering another failure creates a new report. Existing event batches remain queued. Empty checks, duplicates, individual failures still being retried, user stops, and ordinary session lifecycle pauses do not generate these reports.
 
 Commands inherit the current user's permissions and existing environment; this is not a sandbox. Common plaintext credential arguments are rejected, but that is not a complete secret scan; the model must still check a command's purpose and permissions against the user's request and avoid putting passwords or tokens in arguments, cursors, results, or the session. Use existing environment variables, credential files, or the system credential manager. Check scripts and their dependencies must be trusted and should not spawn background daemons; a malicious process deliberately escaping its process group is outside the executor's isolation guarantees.
 
@@ -181,7 +181,7 @@ find .pi/logs/monitor -name '*.jsonl*' -mtime +30 -delete
 
 ## Scheduling and Recovery
 
-Checks for the same task never overlap, and the shared concurrency limit is 2. The current session holds at most 16 running, paused, or pending-delivery tasks, plus a cache of the 32 most recent terminal tasks with no backlog. `list` returns only these tasks; older tasks can still be queried by ID via `show/status` from the current branch history, without deleting session evidence. The next round is computed after the current round ends, and missed rounds are not caught up. Check errors use exponential backoff capped at 5 minutes, but a longer user-configured interval is not shortened; after 5 consecutive failures the task pauses and warns.
+Checks for the same task never overlap, and the shared concurrency limit is 2. The current session holds at most 16 running, paused, or pending-delivery tasks, plus a cache of the 32 most recent terminal tasks with no backlog. `list` returns only these tasks; older tasks can still be queried by ID via `show/status` from the current branch history, without deleting session evidence. The next round is computed after the current round ends, and missed rounds are not caught up. Check errors use exponential backoff capped at 5 minutes, but a longer user-configured interval is not shortened; after 5 consecutive failures the task pauses and queues a state report.
 
 Tasks and key state are saved with Pi's `appendEntry()` and appended only on substantive changes; empty polls and duplicate results only update the in-memory last check time. Result acceptance and delivery acknowledgment are separate. Pi's `message_end` callback runs before the write to disk, so the extension verifies the full receipt in the session file after the callback ends before clearing the corresponding batch; on recovery it also checks persisted receipts to avoid duplicate delivery after an ordinary reload. When an async send is unacknowledged, results are kept and a warning is raised; retry with `/monitor resume <id>`. If the receipt has been written but saving the ACK state still fails, re-delivery stays blocked and the session store must be repaired first. Strict exactly-once semantics across crashes are not promised.
 
@@ -206,11 +206,15 @@ Watching does not continue after Pi shuts down, and no daemon is provided. A nor
 Run from the repository root:
 
 ```bash
-npm --prefix packages/pi-monitor test
-npm --prefix packages/pi-monitor run typecheck
-cd runtimes/go && go test ./...
+npm test -w @yefengr/pi-monitor
+npm run typecheck -w @yefengr/pi-monitor
+npm run lint -w @yefengr/pi-monitor
+npm run check:docs
+git diff --check
+# Before release:
+npm run verify
 ```
 
-The CI Windows jobs run the two target packages on the primary Node runtime and Node 22.19, including real tarball loading/execution. Windows Server runners do not certify Windows 10/11 client behavior. The tests retain POSIX descendant-reaping assertions and cover Windows wrappers, Unicode/space paths, tree cleanup, cleanup failures, inherited-pipe bounds, RPC lifecycle, and protocol limits. Test fixtures clean up their own remaining processes.
+The CI Windows jobs verify Monitor, Worktree, Subagents, and Task Status on the primary Node runtime and Node 22.19; Monitor and Worktree include real tarball loading/execution. Windows Server runners do not certify Windows 10/11 client behavior. The tests retain POSIX descendant-reaping assertions and cover Windows wrappers, Unicode/space paths, tree cleanup, cleanup failures, inherited-pipe bounds, RPC lifecycle, and protocol limits. Test fixtures clean up their own remaining processes.
 
-Type checking requires the dev dependencies in the manifest and the Pi peer. Integration tests reuse the installed Pi; `PI_MONITOR_PI_ROOT` can point at that package root. They never install anything or rewrite personal configuration for tests. The RPC notification smoke uses an isolated HOME, a seeded session, and notification-only mode to check confirmation-free start/resume, both modes, reload, and session switching without invoking the model. The explanation-turn smoke uses a local HTTP model-response fixture to verify that native messages are written to disk and write tools are blocked; it does not access external models and incurs no real model costs.
+Type checking requires the dev dependencies in the manifest and the Pi peer. Integration tests reuse the installed Pi; `PI_MONITOR_PI_ROOT` can point at that package root. They never install anything or rewrite personal configuration for tests. The RPC notification smoke uses an isolated HOME, a seeded session, and notification-only mode to check confirmation-free start/resume, both modes, reload, and session switching without invoking the model. The result-turn smoke uses a local HTTP model-response fixture to verify native receipt persistence, harmless temporary-file tool execution, and registration of a subsequent watch without a Monitor-specific gate. It does not access external models or incur real model costs. This proves transport and tool availability, not a real model's judgment about the conversation or appropriate follow-up actions.

@@ -37,7 +37,7 @@ export class MonitorEngine {
       record.nextCheckAt = Math.max(record.nextCheckAt, this.now());
       this.tasks.set(record.id, record);
       if ((record.status === "running" || (record.status === "paused" && (!record.resumeStatus || record.resumeStatus === "running"))) && this.expired(record)) {
-        this.commit({ ...record, status: "expired" });
+        this.commit(this.statusBatch(record, "expired", "监听已到期"));
       } else if (record.status === "running" && !autoResume(record)) {
         this.commit({ ...record, status: "paused", pauseReason: "重新进入会话，需要调用 resume 恢复" });
       }
@@ -49,15 +49,16 @@ export class MonitorEngine {
     this.assertLive();
     if (this.tasks.has(definition.id)) throw new Error("监听 id 已存在");
     const record: MonitorRecord = {
-      ...structuredClone(definition), status: this.expired(definition) ? "expired" : "running",
+      ...structuredClone(definition), status: "running",
       nextCheckAt: this.now(), failures: 0, seenIds: [], pending: [],
     };
-    this.options.save(structuredClone(record));
-    this.tasks.set(record.id, record);
+    const initial = this.expired(record) ? this.statusBatch(record, "expired", "监听已到期") : record;
+    this.options.save(structuredClone(initial));
+    this.tasks.set(record.id, initial);
     this.pruneRetired();
     this.notify();
     this.schedule();
-    return structuredClone(record);
+    return structuredClone(initial);
   }
 
   stop(id: string): void {
@@ -81,8 +82,11 @@ export class MonitorEngine {
     if (task.status !== "paused") throw new Error("只能恢复暂停的监听任务");
     const status = task.resumeStatus ?? "running";
     if (status !== "running") this.commit({ ...task, status, resumeStatus: undefined, pauseReason: undefined, lastError: undefined });
-    else if (this.expired(task)) this.commit({ ...task, status: "expired", resumeStatus: undefined });
-    else this.commit({ ...task, status: "running", resumeStatus: undefined, pauseReason: undefined, failures: 0, lastError: undefined, nextCheckAt: this.now() });
+    else if (this.expired(task)) this.commit(this.statusBatch(task, "expired", "监听已到期"));
+    else {
+      if (task.pending.filter((batch) => batch.statusChange).length >= MAX_PENDING_BATCHES) throw new Error("状态回传积压已满，请先处理待回传结果再恢复检查");
+      this.commit({ ...task, status: "running", resumeStatus: undefined, pauseReason: undefined, failures: 0, lastError: undefined, nextCheckAt: this.now() });
+    }
     this.schedule();
   }
 
@@ -112,6 +116,14 @@ export class MonitorEngine {
   }
   private expired(task: Pick<MonitorDefinition, "deadlineAt">): boolean {
     return task.deadlineAt !== undefined && task.deadlineAt <= this.now();
+  }
+  private statusBatch(task: MonitorRecord, status: "paused" | "expired", reason: string): MonitorRecord {
+    const batch = {
+      id: randomUUID(), taskId: task.id, checkedAt: this.now(), events: [],
+      statusChange: { status, reason, ...(task.lastError ? { lastError: task.lastError } : {}) },
+    };
+    return { ...task, status, resumeStatus: undefined, pauseReason: status === "paused" ? reason : undefined,
+      pending: [...task.pending, batch], lastResult: batch };
   }
   private cancel(id: string): void {
     const operation = this.operations.get(id);
@@ -186,7 +198,7 @@ export class MonitorEngine {
       if (this.persistenceBlocked.has(task.id) || (task.status !== "running" && task.status !== "paused")) continue;
       if ((!task.resumeStatus || task.resumeStatus === "running") && this.expired(task)) {
         this.cancel(task.id);
-        this.commit({ ...task, status: "expired", pauseReason: undefined });
+        this.commit(this.statusBatch(task, "expired", "监听已到期"));
       }
     }
     for (const task of this.tasks.values()) {
@@ -220,7 +232,7 @@ export class MonitorEngine {
   private accept(id: string, result: CheckResult, elapsedMs = 0): void {
     const task = this.tasks.get(id);
     if (task?.status !== "running") return;
-    if (this.expired(task)) { this.commit({ ...task, status: "expired" }); return; }
+    if (this.expired(task)) { this.commit(this.statusBatch(task, "expired", "监听已到期")); return; }
     if (result.state === "error") { this.failed(task, result.summary, elapsedMs); return; }
     const seen = new Set(task.seenIds);
     const events = result.events.filter((event) => {
@@ -231,7 +243,7 @@ export class MonitorEngine {
     const advanced = result.cursor !== undefined && result.cursor !== task.cursor;
     const maxSeen = this.options.maxSeenIds ?? MAX_SEEN_IDS;
     if (seen.size > maxSeen && !advanced) { this.pause(id, "去重容量已满，请让检查命令使用增量 cursor；本批未接收"); return; }
-    if (events.length && task.pending.length >= (this.options.maxPendingBatches ?? MAX_PENDING_BATCHES)) {
+    if (events.length && task.pending.filter((batch) => !batch.statusChange).length >= (this.options.maxPendingBatches ?? MAX_PENDING_BATCHES)) {
       this.pause(id, "待回传队列已满，请先处理结果再恢复；本批未接收"); return;
     }
     const now = this.now();
@@ -265,11 +277,11 @@ export class MonitorEngine {
     const paused = failures >= (this.options.maxFailures ?? MAX_FAILURES);
     const backoff = Math.max(task.intervalMs, Math.min(MAX_BACKOFF_MS, task.intervalMs * 2 ** Math.min(20, failures - 1)));
     this.log(task, { action: "check", state: "error", durationMs: elapsedMs, failures, error: summary });
-    this.commit({
+    const next: MonitorRecord = {
       ...task, failures, lastCheckAt: this.now(), lastError: summary,
-      nextCheckAt: this.now() + backoff, status: paused ? "paused" : "running",
-      pauseReason: paused ? `连续 ${failures} 次检查失败，请检查命令后恢复` : undefined,
-    });
+      nextCheckAt: this.now() + backoff, status: "running", pauseReason: undefined,
+    };
+    this.commit(paused ? this.statusBatch(next, "paused", `连续 ${failures} 次检查失败，请检查命令后恢复`) : next);
   }
 
   private log(task: MonitorRecord, entry: MonitorLogEntry): void {

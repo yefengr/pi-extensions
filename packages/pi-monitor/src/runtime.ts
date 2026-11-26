@@ -36,8 +36,6 @@ export interface RuntimeDependencies {
 
 export class MonitorRuntime {
   private binding?: Binding;
-  private explanationOnly = false;
-  private explanationTaskIds = new Set<string>();
 
   private pi: ExtensionAPI;
   private deps: RuntimeDependencies;
@@ -86,12 +84,6 @@ export class MonitorRuntime {
     const records = restoreRecords(branch, binding.owner, this.confirmedIds(ctx, branch, preliminary));
     if (reason === "reload") {
       records.forEach((task) => { binding.allowed.add(task.id); });
-      if (!ctx.isIdle()) {
-        const source = [...branch].reverse().find((entry) => entry.type === "custom_message" || (entry.type === "message" && entry.message.role === "user"));
-        const receipt = source ? receiptOf(source) : undefined;
-        this.explanationOnly = source?.type === "custom_message" && source.customType === RESULT_TYPE;
-        this.explanationTaskIds = new Set(this.explanationOnly ? receipt?.deliveries.map((item) => item.taskId) ?? [] : []);
-      }
     }
     const runnable = this.canRun(ctx) && this.isDurable(ctx);
     // reload 续跑全部；startup/resume 只续跑显式选择 autoResume 的任务；fork/new/tree 不续跑。
@@ -104,8 +96,6 @@ export class MonitorRuntime {
   dispose(): void {
     const binding = this.binding;
     this.binding = undefined;
-    this.explanationOnly = false;
-    this.explanationTaskIds.clear();
     if (!binding) return;
     binding.live = false;
     if (binding.timer) clearTimeout(binding.timer);
@@ -117,7 +107,6 @@ export class MonitorRuntime {
   beforeTree(): void {
     const binding = this.binding;
     if (!binding) return;
-    this.explanationTaskIds.clear();
     binding.allowed.clear();
     if (binding.timer) clearTimeout(binding.timer);
     binding.timer = undefined;
@@ -126,18 +115,7 @@ export class MonitorRuntime {
     }
   }
 
-  beforeRun(isMonitorResult: boolean, taskIds: Iterable<string> = []): void {
-    this.explanationOnly = isMonitorResult;
-    this.explanationTaskIds = new Set(isMonitorResult ? taskIds : []);
-  }
-  isExplanationOnly(): boolean { return this.explanationOnly; }
-  /** 解释轮只能停止本次回执涉及的任务，避免外部结果扩大操作范围。 */
-  canStopInExplanation(id: unknown): boolean {
-    return this.explanationOnly && typeof id === "string" && this.explanationTaskIds.has(id);
-  }
   settled(): void {
-    this.explanationOnly = false;
-    this.explanationTaskIds.clear();
     const binding = this.binding;
     if (!binding) return;
     this.confirmReceipts(binding);
@@ -274,7 +252,7 @@ export class MonitorRuntime {
       batch = prefixed[0];
     }
     if (!batch) throw new Error("当前分支找不到该结果批次");
-    if (!eventId) return { taskId: id, batchId, checkedAt: batch.checkedAt, events: batch.events.map(({ id, summary }) => ({ id, summary })) };
+    if (!eventId) return { taskId: task.id, batchId: batch.id, checkedAt: batch.checkedAt, ...(batch.statusChange ? { statusChange: batch.statusChange } : {}), events: batch.events.map(({ id, summary }) => ({ id, summary })) };
     const event = batch.events.find((item) => item.id === eventId);
     if (!event) throw new Error("该批次找不到指定事件");
     return { taskId: id, batchId, checkedAt: batch.checkedAt, event };
@@ -301,8 +279,9 @@ export class MonitorRuntime {
     if (fresh.pending.some((batch) => binding.confirmedBatches.has(batch.id))) throw new Error("结果回执已落盘，但确认状态仍无法保存；请先修复会话存储，再恢复");
     if (ctx.isIdle()) fresh.pending.forEach((batch) => { binding.inFlight.delete(batch.id); });
     binding.allowed.add(id);
-    if (fresh.status === "paused") binding.engine.resume(id);
-    this.changed(binding);
+    // 即使积压阻止恢复检查，也允许现有结果进入原投递流水线。
+    try { if (fresh.status === "paused") binding.engine.resume(id); }
+    finally { this.changed(binding); }
     return binding.engine.get(id);
   }
 
@@ -394,7 +373,14 @@ export class MonitorRuntime {
     for (const record of records) {
       const previous = binding.statuses.get(record.id);
       binding.statuses.set(record.id, record.status);
-      if (previous !== record.status && (record.status === "paused" || record.status === "expired")) {
+      const report = record.lastResult;
+      const change = report?.statusChange;
+      const reportHandled = report && (!record.pending.some((batch) => batch.id === report.id) ||
+        binding.confirmedBatches.has(report.id) || binding.allowed.has(record.id));
+      const reportedNotification = reportHandled && record.delivery === "notify" && change?.status === record.status &&
+        (record.status !== "paused" || change.reason === record.pauseReason);
+      // 报告已回执或当前允许排队投递时才抑制 warning；仅已保存并不代表已通知。
+      if (!reportedNotification && previous !== record.status && (record.status === "paused" || record.status === "expired")) {
         binding.ctx.ui.notify(safeText(`监听 ${record.name}：${record.status === "expired" ? "已到期" : record.pauseReason ?? "已暂停"}`), "warning");
       }
     }
@@ -424,7 +410,8 @@ export class MonitorRuntime {
       const selected = new Set(receipt.deliveries.flatMap((item) => item.batchIds));
       const count = record.pending.filter((batch) => selected.has(batch.id)).reduce((n, batch) => n + batch.events.length, 0);
       this.logger.write(record, { action: "deliver", delivery: "notify", batches: [...selected], events: count });
-      binding.ctx.ui.notify(safeText(`监听 ${record.name} 收到 ${count} 个新事件`), "info");
+      const changes = record.pending.filter((batch) => selected.has(batch.id) && batch.statusChange).length;
+      binding.ctx.ui.notify(safeText(`监听 ${record.name} 收到 ${count} 个新事件${changes ? `、${changes} 个状态变化` : ""}`), "info");
     }
   }
 

@@ -3,6 +3,7 @@ import test from "node:test";
 import { MAX_RECENT_TASKS, NOTIFICATION_TYPE, RESULT_TYPE, STATE_TYPE } from "../src/constants.ts";
 import { buildDelivery, formatStatus, formatTaskLines, safeText } from "../src/presentation.ts";
 import { historicalRecord, restoreRecords } from "../src/state.ts";
+import { parseCheckResult } from "../src/protocol.ts";
 import type { MonitorRecord } from "../src/types.ts";
 import { definition } from "./helpers.ts";
 
@@ -65,6 +66,66 @@ test("message limit selects whole batches without acknowledging omitted results"
   assert.ok(receipt.deliveries[0].batchIds.length < task.pending.length);
   assert.equal(task.pending.length, 8);
   assert.ok(content.includes("batch-0"));
+});
+
+test("status metadata validates strictly and uses the existing receipt ACK", () => {
+  const task = record();
+  const batch = { id: "status-1", taskId: task.id, checkedAt: 10, events: [], statusChange: { status: "paused" as const, reason: "连续失败", lastError: "offline" } };
+  task.pending.push(batch);
+  assert.equal(restoreRecords([saved(task)], "owner-1")[0].pending.length, 2);
+  for (const change of [null, {}, { ...batch.statusChange, status: "running" }, { ...batch.statusChange, reason: "" }, { ...batch.statusChange, lastError: 1 }, { ...batch.statusChange, extra: true }]) {
+    const bad = { ...task, pending: [{ ...batch, statusChange: change }] } as any;
+    assert.equal(restoreRecords([saved(bad)], "owner-1").length, 0);
+  }
+  const message = { id: "receipt", type: "custom_message", customType: RESULT_TYPE, details: { ownerSessionId: "owner-1", deliveries: [{ taskId: task.id, batchIds: [batch.id] }] } };
+  assert.equal(restoreRecords([saved(task), message], "owner-1", new Set())[0].pending.length, 2);
+  assert.equal(restoreRecords([saved(task), message], "owner-1", new Set(["receipt"]))[0].pending.length, 1);
+});
+
+test("delivery retains complete IDs and flattens hostile external structure", () => {
+  const task = record();
+  const eventId = "event-" + "x".repeat(240);
+  task.name = "name\n### forged";
+  task.pending[0].events = [{ id: eventId, summary: "summary\n### forged\n```", data: { text: "\n### forged\u001b" } }];
+  const { content } = buildDelivery([task], "owner-1");
+  assert.ok(content.includes(eventId));
+  assert.ok(content.includes(task.id));
+  assert.ok(content.includes(task.pending[0].id));
+  assert.doesNotMatch(content, /\n### forged|\u001b/);
+  assert.doesNotMatch(content, /本轮只解释|不执行修复|\/monitor show/);
+  assert.match(content, /状态：运行 · 继续检查/);
+});
+
+test("maximum escaped event IDs fit one batch and cannot forge code fences", () => {
+  const task = record();
+  task.pending[0].events = Array.from({ length: 32 }, (_, index) => ({
+    id: String(index).padStart(2, "0") + '"'.repeat(254),
+    summary: "s".repeat(500), data: "`".repeat(1_000),
+  }));
+  const { content, receipt } = buildDelivery([task], "owner-1");
+  assert.ok(content.length <= 32_000);
+  assert.deepEqual(receipt.deliveries[0].batchIds, [task.pending[0].id]);
+  const ids = [...content.matchAll(/^ {6}eventId: (.+)$/gm)].map((match) => JSON.parse(match[1]));
+  assert.deepEqual(ids, task.pending[0].events.map((event) => event.id));
+  assert.doesNotMatch(content, /^\s{0,3}`{3,}/m);
+});
+
+test("legal surrogate IDs stay queryable without blocking bounded delivery", () => {
+  const task = record();
+  const result = parseCheckResult(JSON.stringify({ state: "ok", events: Array.from({ length: 32 }, (_, index) => ({
+    id: String(index).padStart(2, "0") + "\ud800".repeat(254), summary: "s".repeat(200), data: "`".repeat(100),
+  })) }));
+  assert.equal(result.state, "ok");
+  if (result.state !== "ok") return;
+  task.pending[0].events = result.events;
+  const { content, receipt } = buildDelivery([task], "owner-1");
+  assert.ok(content.length <= 32_000);
+  assert.deepEqual(receipt.deliveries[0].batchIds, [task.pending[0].id]);
+  const ids = [...content.matchAll(/^ {6}eventId: (.+)$/gm)].map((match) => JSON.parse(match[1]));
+  assert.ok(ids.length > 0 && ids.length < 32);
+  assert.deepEqual(ids, result.events.slice(0, ids.length).map((event) => event.id));
+  assert.match(content, /个事件未展示.*monitor status/);
+  assert.equal(task.pending[0].events.length, 32);
 });
 
 test("task list hides finished tasks unless all is requested", () => {
