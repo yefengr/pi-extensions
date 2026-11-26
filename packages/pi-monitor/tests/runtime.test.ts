@@ -385,6 +385,30 @@ test("failure status waits for idle and panel, retains snapshot and ACKs through
   assert.equal(h.messages.length, 1);
 });
 
+for (const kind of ["failure", "expiry"] as const) {
+  test(`notify ${kind} emits one state notification, including across reload`, async (t) => {
+    const h = host(async () => kind === "failure" ? { state: "error", summary: "offline" } : { state: "ok", events: [] });
+    t.after(() => h.runtime.dispose());
+    const result = await h.call(start({ mode: "continuous", delivery: "notify" }));
+    const id = result.details.tasks[0].id;
+    h.entries.at(-1).data.record.intervalMs = 1;
+    if (kind === "expiry") h.entries.at(-1).data.record.deadlineAt = Date.now() - 1;
+    h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
+    const reports = () => h.notifications.filter(([message]) => message.includes("1 个状态变化"));
+    await eventually(() => reports().length === 1 && h.runtime.record(h.ctx, id).pending.length === 0);
+    assert.equal(h.messages.length, 0);
+    assert.equal(h.notifications.filter(([message]) => /：已到期|：连续 5 次检查失败/.test(message)).length, 0);
+    h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(reports().length, 1);
+    assert.equal(h.notifications.filter(([message]) => /：已到期|：连续 5 次检查失败/.test(message)).length, 0);
+    if (kind === "failure") {
+      await h.call({ action: "resume", id });
+      await eventually(() => reports().length === 2);
+    }
+  });
+}
+
 test("expiry notify is persisted without waking model; ACK failure retains status batch", async (t) => {
   const h = host(async () => ({ state: "ok", events: [] })); t.after(() => h.runtime.dispose());
   const result = await h.call(start({ delivery: "notify", maxDurationSeconds: 10 }));

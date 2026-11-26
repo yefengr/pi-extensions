@@ -373,7 +373,11 @@ export class MonitorRuntime {
     for (const record of records) {
       const previous = binding.statuses.get(record.id);
       binding.statuses.set(record.id, record.status);
-      if (previous !== record.status && (record.status === "paused" || record.status === "expired")) {
+      const change = record.lastResult?.statusChange;
+      const reportedNotification = record.delivery === "notify" && change?.status === record.status &&
+        (record.status !== "paused" || change.reason === record.pauseReason);
+      // 持久化状态批次统一发通知；ACK 后仍以 lastResult 防止 reload 重发 warning。
+      if (!reportedNotification && previous !== record.status && (record.status === "paused" || record.status === "expired")) {
         binding.ctx.ui.notify(safeText(`监听 ${record.name}：${record.status === "expired" ? "已到期" : record.pauseReason ?? "已暂停"}`), "warning");
       }
     }
