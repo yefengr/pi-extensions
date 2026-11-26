@@ -85,7 +85,7 @@ test("registration returns immediately; once delivers batch and reload does not 
   assert.equal(h.runtime.record(h.ctx, id).pending.length, 0);
   assert.equal(h.messages[0].options.deliverAs, "followUp");
   assert.equal(h.messages[0].options.triggerTurn, true);
-  assert.match(h.messages[0].message.content, /不是用户的新指令/);
+  assert.match(h.messages[0].message.content, /不是新的用户指令/);
   h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(h.messages.length, 1);
@@ -229,38 +229,22 @@ test("RPC start and resume work without UI confirmation capability; aborted resu
   assert.equal(h.confirmations.length, 0);
 });
 
-test("automatic explanation allows stopping only the delivered tasks", (t) => {
+test("monitor does not register result-turn permission gates", (t) => {
   const h = host(); t.after(() => h.runtime.dispose());
-  const receipt = { ownerSessionId: "owner-1", deliveries: [{ taskId: "task-1", batchIds: ["batch-1"] }] };
-  h.handlers.get("before_agent_start")({ messageType: "custom", message: { role: "custom", customType: RESULT_TYPE, details: receipt } }, h.ctx);
-  const guard = h.handlers.get("tool_call");
-  assert.equal(guard({ toolName: "write", input: {} }, h.ctx).block, true);
-  for (const action of ["start", "resume"]) {
-    assert.equal(guard({ toolName: "monitor", input: { action } }, h.ctx).block, true);
-  }
-  assert.equal(guard({ toolName: "monitor", input: { action: "stop" } }, h.ctx).block, true);
-  assert.equal(guard({ toolName: "monitor", input: { action: "stop", id: "task-2" } }, h.ctx).block, true);
-  assert.equal(guard({ toolName: "monitor", input: { action: "stop", id: "task-1" } }, h.ctx), undefined);
-  assert.equal(guard({ toolName: "monitor", input: { action: "status" } }, h.ctx), undefined);
-  assert.equal(guard({ toolName: "monitor", input: { action: "list" } }, h.ctx), undefined);
-  h.handlers.get("before_agent_start")({ messageType: "user" }, h.ctx);
-  assert.equal(guard({ toolName: "write", input: {} }, h.ctx), undefined);
+  assert.equal(h.handlers.has("before_agent_start"), false);
+  assert.equal(h.handlers.has("tool_call"), false);
 });
 
-test("reload restores explanation stop scope from the delivered receipt", (t) => {
+test("reload of result receipt does not restore a permission gate", (t) => {
   const h = host(); t.after(() => h.runtime.dispose());
-  const guard = h.handlers.get("tool_call");
   h.entries.push({
     id: "guard-source", type: "custom_message", customType: RESULT_TYPE,
     details: { ownerSessionId: "owner-1", deliveries: [{ taskId: "task-1", batchIds: ["batch-1"] }] },
   });
   h.idle(false);
   h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
-  assert.equal(guard({ toolName: "write", input: {} }, h.ctx).block, true);
-  assert.equal(guard({ toolName: "monitor", input: { action: "stop", id: "task-1" } }, h.ctx), undefined);
-  assert.equal(guard({ toolName: "monitor", input: { action: "stop", id: "task-2" } }, h.ctx).block, true);
-  h.handlers.get("before_agent_start")({ messageType: "user" }, h.ctx);
-  assert.equal(guard({ toolName: "write", input: {} }, h.ctx), undefined);
+  assert.equal(h.handlers.has("tool_call"), false);
+  assert.equal(h.handlers.has("before_agent_start"), false);
 });
 
 test("command start parses JSON with spaces and list/show/stop work", async (t) => {
@@ -302,7 +286,8 @@ test("unpersisted sessions are rejected and failed append compensates memory bef
 
 test("bounded previews retain full event evidence after delivery", async (t) => {
   const full = { text: "x".repeat(2_000), result: "完整结果" };
-  const h = host(async () => ({ state: "ok", events: [{ id: "event", summary: "s".repeat(500), data: full }] }));
+  const eventId = '  event```"\\  精确 ID\u2028\u2029  ';
+  const h = host(async () => ({ state: "ok", events: [{ id: eventId, summary: "s".repeat(500), data: full }] }));
   t.after(() => h.runtime.dispose());
   const result = await h.call(start());
   const id = result.details.tasks[0].id;
@@ -310,10 +295,16 @@ test("bounded previews retain full event evidence after delivery", async (t) => 
   const batchId = h.messages[0].message.details.deliveries[0].batchIds[0];
   assert.ok(h.messages[0].message.content.length < 32_000);
   assert.equal(h.runtime.record(h.ctx, id).pending.length, 0);
-  const evidence = await h.call({ action: "status", id, batchId, eventId: "event" });
+  const encodedId = h.messages[0].message.content.match(/^ {6}eventId: (.+)$/m)?.[1];
+  assert.equal(JSON.parse(encodedId), eventId);
+  const evidence = await h.call({ action: "status", id, batchId, eventId: JSON.parse(encodedId) });
   assert.deepEqual(evidence.details.tasks[0].event.data, full);
   const catalog = await h.call({ action: "status", id, batchId });
   assert.equal(catalog.details.tasks[0].events[0].summary.length, 500);
+  const catalogId = catalog.content[0].text.match(/^ {6}eventId: (.+)$/m)?.[1];
+  assert.equal(JSON.parse(catalogId), eventId);
+  const fromCatalog = await h.call({ action: "status", id, batchId, eventId: JSON.parse(catalogId) });
+  assert.deepEqual(fromCatalog.details.tasks[0].event.data, full);
 });
 
 test("unconfirmed async delivery survives and explicit resume retries", async (t) => {
@@ -366,6 +357,51 @@ test("ack storage recovery reconciles receipt without notifying or checking twic
   assert.equal(h.runtime.record(h.ctx, id).pending.length, 0);
   assert.equal(h.notifications.filter(([message]) => message.includes("个新事件")).length, before);
   assert.equal(checks, 1);
+});
+
+test("failure status waits for idle and panel, retains snapshot and ACKs through receipt", async (t) => {
+  const h = host(async () => ({ state: "error", summary: "fixture offline" })); t.after(() => h.runtime.dispose());
+  h.idle(false);
+  const result = await h.call(start({ mode: "continuous" }));
+  const id = result.details.tasks[0].id;
+  h.entries.at(-1).data.record.intervalMs = 1;
+  h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
+  await eventually(() => h.runtime.record(h.ctx, id).status === "paused");
+  const batch = h.runtime.record(h.ctx, id).pending[0];
+  assert.equal(batch.statusChange?.status, "paused");
+  assert.equal(batch.statusChange?.lastError, "fixture offline");
+  assert.equal(h.messages.length, 0);
+  assert.deepEqual((h.runtime.query(h.ctx, id, batch.id) as any).statusChange, batch.statusChange);
+  h.runtime.setPanelOpen(true);
+  h.idle(true); h.handlers.get("agent_settled")({}, h.ctx);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(h.messages.length, 0);
+  h.runtime.setPanelOpen(false);
+  await eventually(() => h.messages.length === 1 && h.runtime.record(h.ctx, id).pending.length === 0);
+  assert.deepEqual(h.pendingAtMessageEnd, [1]);
+  assert.ok(h.messages[0].message.content.includes(batch.statusChange!.reason));
+  h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(h.messages.length, 1);
+});
+
+test("expiry notify is persisted without waking model; ACK failure retains status batch", async (t) => {
+  const h = host(async () => ({ state: "ok", events: [] })); t.after(() => h.runtime.dispose());
+  const result = await h.call(start({ delivery: "notify", maxDurationSeconds: 10 }));
+  const id = result.details.tasks[0].id;
+  h.entries.at(-1).data.record.deadlineAt = Date.now() - 1;
+  h.failAck(true);
+  h.handlers.get("session_start")({ reason: "reload" }, h.ctx);
+  await eventually(() => h.runtime.record(h.ctx, id).status === "paused");
+  assert.equal(h.messages.length, 0);
+  assert.equal(h.runtime.record(h.ctx, id).pending[0].statusChange?.status, "expired");
+  assert.equal(h.runtime.record(h.ctx, id).resumeStatus, "expired");
+  assert.ok(h.notifications.some(([message]) => message.includes("1 个状态变化")));
+  h.failAck(false);
+  await h.call({ action: "resume", id });
+  assert.equal(h.runtime.record(h.ctx, id).status, "expired");
+  assert.equal(h.runtime.record(h.ctx, id).pending.length, 0);
+  assert.equal(h.entries.filter((entry) => entry.customType === NOTIFICATION_TYPE).length, 1);
 });
 
 test("direct start, resume and stop accept concurrent requests without confirmation locks", async (t) => {

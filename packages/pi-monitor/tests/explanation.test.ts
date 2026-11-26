@@ -9,8 +9,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { eventually, isolatedEnvironment, piCliPath } from "./helpers.ts";
 
-// 仅本地 HTTP fixture 伪造模型响应，真实 Pi 驱动解释轮和工具硬门禁；没有外部模型费用。
-test("real Pi explanation persists receipt and blocks model-requested writes", { timeout: 30_000 }, async (t) => {
+// 仅本地 HTTP fixture 伪造模型响应，真实 Pi 驱动结果轮、无害写入和后继监听；不验证真实模型的上下文判断能力；没有外部模型费用。
+test("real Pi result turn persists receipt and permits fixture-requested write and monitor start", { timeout: 30_000 }, async (t) => {
   const cli = piCliPath();
   if (!cli) {
     t.skip("需要可用的 Pi CLI；可用 PI_MONITOR_PI_ROOT 指定 package 根目录");
@@ -19,7 +19,7 @@ test("real Pi explanation persists receipt and blocks model-requested writes", {
   const root = await mkdtemp(path.join(os.tmpdir(), "monitor-explain-"));
   const agent = path.join(root, "agent");
   await mkdir(agent);
-  const trap = path.join(root, "must-not-exist.txt");
+  const trap = path.join(root, "harmless-fixture.txt");
   const requests: any[] = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -30,10 +30,13 @@ test("real Pi explanation persists receipt and blocks model-requested writes", {
       const base = { id: `fixture-${requests.length}`, object: "chat.completion.chunk", created: 1, model: "fixture" };
       const chunk = (delta: unknown, finish_reason: string | null) => response.write("data: " + JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason }] }) + "\n\n");
       if (requests.length === 1) {
-        chunk({ role: "assistant", tool_calls: [{ index: 0, id: "forbidden-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: trap, content: "must be blocked" }) } }] }, null);
+        chunk({ role: "assistant", tool_calls: [{ index: 0, id: "fixture-write", type: "function", function: { name: "write", arguments: JSON.stringify({ path: trap, content: "harmless fixture write" }) } }] }, null);
+        chunk({}, "tool_calls");
+      } else if (requests.length === 2) {
+        chunk({ role: "assistant", tool_calls: [{ index: 0, id: "followup-monitor", type: "function", function: { name: "monitor", arguments: JSON.stringify({ action: "start", name: "后继监听", purpose: "本地无害fixture", mode: "once", delivery: "notify", command: process.execPath, args: ["-e", "console.log(JSON.stringify({state:'ok',events:[{id:'followup',summary:'后继完成'}]}))"] }) } }] }, null);
         chunk({}, "tool_calls");
       } else {
-        chunk({ role: "assistant", content: "监听结果已解释，未执行后续操作。" }, null);
+        chunk({ role: "assistant", content: "监听结果已解释，完成本地fixture操作。" }, null);
         chunk({}, "stop");
       }
       response.end("data: [DONE]\n\n");
@@ -86,16 +89,18 @@ test("real Pi explanation persists receipt and blocks model-requested writes", {
   }
   await command("start", "prompt", { message: "/monitor start " + JSON.stringify({ name: "自动解释", purpose: "解释本地测试结果", mode: "once", delivery: "explain", command: process.execPath, args: ["-e", "console.log(JSON.stringify({state:'ok',events:[{id:'done',summary:'检查成功',data:{value:42}}]}))"] }) });
   await eventually(() => events.some((event) => event.type === "agent_settled") || exited, 15_000);
-  assert.equal(requests.length, 2, diagnostics + JSON.stringify(events.filter((event) => event.type === "extension_error")));
+  assert.equal(requests.length, 3, diagnostics + JSON.stringify(events.filter((event) => event.type === "extension_error")));
   assert.equal(events.some((event) => event.method === "confirm"), false);
   assert.equal(events.some((event) => event.type === "extension_error"), false);
-  assert.equal(existsSync(trap), false);
-  assert.ok(requests[1].messages.some((message: any) => message.role === "tool" && JSON.stringify(message).includes("本轮由监听结果触发")));
+  assert.equal(existsSync(trap), true);
+  assert.ok(requests[1].messages.some((message: any) => message.role === "tool" && !JSON.stringify(message).includes("本轮由监听结果触发")));
   const data = await command("entries", "get_entries");
   assert.equal(data.entries.filter((entry: any) => entry.type === "custom_message" && entry.customType === "monitor-result").length, 1);
   const states = data.entries.filter((entry: any) => entry.type === "custom" && entry.customType === "monitor-state");
-  assert.equal(states.at(-1).data.record.pending.length, 0);
-  assert.equal(states.at(-1).data.record.status, "completed");
+  const original = states.filter((entry: any) => entry.data.record.name === "自动解释");
+  assert.equal(original.at(-1).data.record.pending.length, 0);
+  assert.equal(original.at(-1).data.record.status, "completed");
+  assert.ok(states.some((entry: any) => entry.data.record.name === "后继监听"));
   assert.ok(events.some((event) => event.type === "message_end" && event.message?.role === "assistant" && JSON.stringify(event.message.content).includes("监听结果已解释")));
   child.stdin.end(); assert.equal(await exit, 0);
 });

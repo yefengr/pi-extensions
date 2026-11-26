@@ -43,11 +43,18 @@ export interface MonitorDefinition {
   logLevel: LogLevel;
 }
 
+export interface StatusChange {
+  status: "paused" | "expired";
+  reason: string;
+  lastError?: string;
+}
+
 export interface ResultBatch {
   id: string;
   taskId: string;
   checkedAt: number;
   events: MonitorEvent[];
+  statusChange?: StatusChange;
 }
 
 export interface MonitorRecord extends MonitorDefinition {
