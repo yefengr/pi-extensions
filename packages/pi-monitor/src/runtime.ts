@@ -373,10 +373,13 @@ export class MonitorRuntime {
     for (const record of records) {
       const previous = binding.statuses.get(record.id);
       binding.statuses.set(record.id, record.status);
-      const change = record.lastResult?.statusChange;
-      const reportedNotification = record.delivery === "notify" && change?.status === record.status &&
+      const report = record.lastResult;
+      const change = report?.statusChange;
+      const reportHandled = report && (!record.pending.some((batch) => batch.id === report.id) ||
+        binding.confirmedBatches.has(report.id) || binding.allowed.has(record.id));
+      const reportedNotification = reportHandled && record.delivery === "notify" && change?.status === record.status &&
         (record.status !== "paused" || change.reason === record.pauseReason);
-      // 持久化状态批次统一发通知；ACK 后仍以 lastResult 防止 reload 重发 warning。
+      // 报告已回执或当前允许排队投递时才抑制 warning；仅已保存并不代表已通知。
       if (!reportedNotification && previous !== record.status && (record.status === "paused" || record.status === "expired")) {
         binding.ctx.ui.notify(safeText(`监听 ${record.name}：${record.status === "expired" ? "已到期" : record.pauseReason ?? "已暂停"}`), "warning");
       }

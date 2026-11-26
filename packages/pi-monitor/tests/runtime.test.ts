@@ -402,12 +402,62 @@ for (const kind of ["failure", "expiry"] as const) {
     await new Promise((resolve) => setTimeout(resolve, 15));
     assert.equal(reports().length, 1);
     assert.equal(h.notifications.filter(([message]) => /：已到期|：连续 5 次检查失败/.test(message)).length, 0);
+    h.handlers.get("session_start")({ reason: "startup" }, h.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(reports().length, 1);
+    assert.equal(h.notifications.filter(([message]) => /：已到期|：连续 5 次检查失败/.test(message)).length, 0);
     if (kind === "failure") {
       await h.call({ action: "resume", id });
       await eventually(() => reports().length === 2);
     }
   });
 }
+
+for (const autoResume of [false, true]) {
+  test(`startup after deadline warns before notify delivery is allowed (autoResume=${autoResume})`, async (t) => {
+    let checks = 0;
+    const h = host(async () => { checks++; return { state: "ok", events: [] }; });
+    t.after(() => h.runtime.dispose());
+    const result = await h.call(start({ mode: "continuous", delivery: "notify", autoResume }));
+    const id = result.details.tasks[0].id;
+    h.entries.at(-1).data.record.deadlineAt = Date.now() - 1;
+    h.handlers.get("session_start")({ reason: "startup" }, h.ctx);
+    const warnings = () => h.notifications.filter(([message]) => message.includes("：已到期"));
+    assert.equal(h.runtime.record(h.ctx, id).status, "expired");
+    assert.equal(h.runtime.record(h.ctx, id).pending[0].statusChange?.status, "expired");
+    assert.equal(warnings().length, 1);
+    assert.equal(h.entries.filter((entry) => entry.customType === NOTIFICATION_TYPE).length, 0);
+    h.handlers.get("agent_settled")({}, h.ctx);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    assert.equal(warnings().length, 1);
+    assert.equal(checks, 0);
+    assert.equal(h.messages.length, 0);
+    await h.call({ action: "resume", id });
+    await eventually(() => h.runtime.record(h.ctx, id).pending.length === 0);
+    assert.equal(h.entries.filter((entry) => entry.customType === NOTIFICATION_TYPE).length, 1);
+    assert.equal(warnings().length, 1);
+    assert.equal(checks, 0);
+  });
+}
+
+test("startup expiry warning preserves business backlog without granting delivery", async (t) => {
+  const h = host(async () => ({ state: "ok", events: [{ id: "business", summary: "旧业务结果", data: { value: 42 } }] }));
+  t.after(() => h.runtime.dispose());
+  h.runtime.setPanelOpen(true);
+  const result = await h.call(start({ mode: "continuous", delivery: "notify" }));
+  const id = result.details.tasks[0].id;
+  await eventually(() => h.runtime.record(h.ctx, id).pending.length === 1);
+  const business = h.runtime.record(h.ctx, id).pending[0];
+  h.entries.at(-1).data.record.deadlineAt = Date.now() - 1;
+  h.handlers.get("session_start")({ reason: "startup" }, h.ctx);
+  assert.equal(h.runtime.record(h.ctx, id).pending.length, 2);
+  assert.deepEqual(h.runtime.record(h.ctx, id).pending[0], business);
+  assert.equal(h.notifications.filter(([message]) => message.includes("：已到期")).length, 1);
+  assert.equal(h.entries.filter((entry) => entry.customType === NOTIFICATION_TYPE).length, 0);
+  assert.equal(h.messages.length, 0);
+  const evidence = await h.call({ action: "status", id, batchId: business.id, eventId: "business" });
+  assert.deepEqual(evidence.details.tasks[0].event.data, { value: 42 });
+});
 
 test("expiry notify is persisted without waking model; ACK failure retains status batch", async (t) => {
   const h = host(async () => ({ state: "ok", events: [] })); t.after(() => h.runtime.dispose());
